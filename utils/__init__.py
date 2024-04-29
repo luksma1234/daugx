@@ -3,7 +3,8 @@ from .misc import (
     get_random,
     is_executed,
     choose_by_prob,
-    load_json
+    load_json,
+    get_seed
 )
 
 

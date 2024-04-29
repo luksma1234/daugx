@@ -1,3 +1,5 @@
+import warnings
+
 from ..utils import constants as c
 from ..utils.node_utils import is_output, is_dividing, is_inflationary, config_to_node
 from .path import Path
@@ -5,17 +7,21 @@ from .node import *
 from copy import deepcopy
 from .sequence import Sequence
 
+# TODO: Change execution to application. exe_prob -> app_prob
+
 
 class Plan:
     """
     A plan to augment a given dataset. The plan reads in a bluprint.json.
     """
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, seed: int = None):
         self.blueprint = load_json(file_path)
 
         self.nodes: List[Node] = []
         self.sequences: List[Sequence] = []
         self.paths: List[Path] = []
+
+        self.seed = seed
 
         # build plan
         self.build()
@@ -25,6 +31,11 @@ class Plan:
         Build the plan by its blueprint.
         :return: None
         """
+        if self.seed is None:
+            self.seed = get_seed()
+
+        warnings.warn(f"Daugx - Seed for execution: {self.seed}")
+
         self._init_nodes()
         self._init_seqs()
         self._init_paths()

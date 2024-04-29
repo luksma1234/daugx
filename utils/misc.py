@@ -8,12 +8,16 @@ from typing import List
 import json
 
 
-def new_id():
+def new_id() -> str:
     return str(uuid.uuid4())
 
 
-def get_random():
+def get_random() -> float:
     return random.random()
+
+
+def get_seed() -> int:
+    return int(get_random() * 90000) + 10000
 
 
 def is_executed(execution_probability: float) -> bool:
