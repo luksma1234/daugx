@@ -1,7 +1,7 @@
 # Image dimensions
 
 
-![img.png](img.png)
+<img src="img.png" alt="drawing" width="1200"/>
 
 Keep in mind when reading images with opencv, images are read in matrix notation.
 The dimensions of a matrix are (rows, columns) - which is (height, width) in image notation.<br />
@@ -20,3 +20,13 @@ where images are read as bgr instead of rgb.
 When returning augmented images, the rgb-matrix notation is applied. Here only the first and the second image dimensions 
 are transposed.
 
+Image colors are kept throughout all augmentations. 
+
+# Augmentations
+
+- Augmentations may produce dropout patches. The color of these patches will typically be (0, 0, 0).
+- The Augmentations will **not** fill these patches with cut information from the image (e.g. Mirroring or reflecting)
+
+##  Boundary Transformation
+- Boundaries are represented as floats in the range of 0 to 1
+- 

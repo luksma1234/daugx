@@ -10,14 +10,15 @@ class Label:
 
 
 class Annotation:
-    def __init__(self, boundary: np.ndarray, label: Label, reflect: bool = True):
+    def __init__(self, boundary: np.ndarray, label: Label):
         """
         A Roof class for all annotations.
         :param boundary: Any boundary of any object as numpy array. Can be a mask, a box, etc...
                          A boundary always includes two or more two-dimensional points on the image (x, y) plane.
+                         Boundaries are always normalized and will therefore be forced in the range of 0 to 1.
         :param label: Any form of label represented as a dict.
         """
-        self.boundary = boundary
+        self.boundary = np.clip(boundary, 0, 1)
         self.label = label
         self.id = new_id()
         self.size = self._get_size()
@@ -86,8 +87,6 @@ class Annotation:
             if not self.invalid:
                 self.invalid = self.size > max_size
 
-
-# TODO: Make annotations a decorator for each augmentation which affects annotations
 
 class Annotations:
     def __init__(self, img_dims: Tuple[int, int]):
