@@ -1,6 +1,12 @@
 import numpy as np
 from typing import Tuple, List
 from ..utils import new_id
+from ..utils.mat_utils import get_2d_transf_mat
+
+
+# TODO: Implement 0 to 1 range for annotations
+# TODO: Rewrite the cut_min / cut_max function
+# TODO: Implement the Affine transformation function for an image and for the annotations
 
 
 class Label:
@@ -18,21 +24,25 @@ class Annotation:
                          Boundaries are always normalized and will therefore be forced in the range of 0 to 1.
         :param label: Any form of label represented as a dict.
         """
-        self.boundary = np.clip(boundary, 0, 1)
+        self.boundary = boundary
         self.label = label
         self.id = new_id()
         self.size = self._get_size()
         self.pos = self._get_pos()
         self.invalid = False
+        self.verify()
 
     def set_label(self, label: Label):
         self.label = label
 
     def verify(self):
         """
-        OVERRIDE IN SUBCLASS
+        Clips boundary to (0, 1) and verifies if boundary is still in image.
+        Flags annotation as invalid if all matrix entries are equally 1 or 0.
         """
-        pass
+        self.boundary = np.clip(self.boundary, 0, 1)
+        if np.all(self.boundary == 0) or np.all(self.boundary == 1):
+            self.invalid = True
 
     def _get_size(self) -> int:
         """
@@ -50,60 +60,13 @@ class Annotation:
     def set_boundary(self, boundary):
         self.__init__(boundary, self.label)
 
-    def cut_min(self, new_min: Tuple[int, int]):
-        """
-        Cuts all points of boundary to a new min value.
-        """
-        # check if all points are outside new min
-        if all(any(dim_new_min > dim_point for dim_new_min, dim_point in zip(new_min, point))
-               for point in self.boundary):
-            self.invalid = True
-        else:
-            self.boundary = np.array(
-                [(dim_new_min if dim_new_min > dim_point else dim_point
-                  for dim_new_min, dim_point in zip(new_min, point))
-                 for point in self.boundary]
-            )
-
-    def cut_max(self, new_max: Tuple[int, int]):
-        """
-        Cuts all points of boundary to a new max_value.
-        """
-        # check if all points are outside new max
-        if all(any(dim_new_max < dim_point for dim_new_max, dim_point in zip(new_max, point))
-               for point in self.boundary):
-            self.invalid = True
-        else:
-            self.boundary = np.array(
-                [(dim_new_max if dim_new_max < dim_point else dim_point
-                  for dim_new_max, dim_point in zip(new_max, point))
-                 for point in self.boundary]
-            )
-
-    def check_size(self, min_size: int = None, max_size: int = None):
-        if min_size is not None:
-            self.invalid = self.size < min_size
-        if max_size is not None:
-            if not self.invalid:
-                self.invalid = self.size > max_size
-
 
 class Annotations:
     def __init__(self, img_dims: Tuple[int, int]):
         self.annots: List[Annotation] = []
-        self.img_dims = img_dims
 
-    def shift(self, shift: Tuple[float, float]):
-        self.transf(self.get_transf_mat(translation=shift))
-
-    def scale(self, scale: Tuple[float, float]):
-        self.transf(self.get_transf_mat(scale=scale))
-
-    def rotate(self, angle: int or float):
-        self.transf(self.get_transf_mat(angle=angle))
-
-    def perspective(self, distortion: Tuple[float, float]):
-        self.transf(self.get_transf_mat(distortion=distortion))
+    def affine(self, transf_matrix):
+        self.transf(transf_matrix)
 
     def add(self, annot: Annotation):
         self.annots.append(annot)
@@ -158,73 +121,23 @@ class Annotations:
     @staticmethod
     def _unscale(scaled_points: np.ndarray):
         points = scaled_points[:, :2]
-        scaler = np.hstack((scaled_points[:, 2], scaled_points[:, 2]))
+        scaler = np.vstack((scaled_points[:, 2], scaled_points[:, 2]))
         return np.einsum("ij, ji -> ij", points, scaler)
-
-    @staticmethod
-    def get_transf_mat(
-            scale: Tuple[float, float] = None,
-            angle: float = None,
-            translation: Tuple[float, float] = None,
-            distortion: Tuple[float, float] = None
-    ):
-        """
-        Create a transformation matrix based on specified parameters.
-
-        Args:
-            scale (tuple): Scaling factors along x and y axes (sx, sy).
-            angle (float): Rotation angle in degrees.
-            translation (tuple): Translation along x and y axes (tx, ty).
-            distortion (tuple): Perspective distortion coefficients (px, py).
-
-        Returns:
-            numpy.ndarray: Transformation matrix.
-        """
-        matrix = np.identity(3)
-
-        if scale is not None:
-            sx, sy = scale
-            scale_matrix = np.array([[sx, 0, 0], [0, sy, 0], [0, 0, 1]])
-            matrix = np.dot(scale_matrix, matrix)
-
-        if angle is not None:
-            angle_rad = np.radians(angle)
-            rotation_matrix = np.array([[np.cos(angle_rad), -np.sin(angle_rad), 0],
-                                        [np.sin(angle_rad), np.cos(angle_rad), 0],
-                                        [0, 0, 1]])
-            matrix = np.dot(rotation_matrix, matrix)
-
-        if translation is not None:
-            tx, ty = translation
-            translation_matrix = np.array([[1, 0, tx], [0, 1, ty], [0, 0, 1]])
-            matrix = np.dot(translation_matrix, matrix)
-
-        if distortion is not None:
-            dx, dy = distortion
-            perspective_matrix = np.array([[1, 0, dx], [0, 1, dy], [0, 0, 1]])
-            matrix = np.dot(perspective_matrix, matrix)
-
-        return matrix
 
 
 class BoxAnnotation(Annotation):
     def __init__(self, boundary: np.ndarray, label: Label):
-        self._permute_boundary()
+        self._assure_box()
         self.width = self.boundary[2] - self.boundary[0]
         self.height = self.boundary[3] - self.boundary[1]
         super().__init__(boundary, label)
 
-    def verify(self):
-        assert self.width >= 0 and self.height >= 0, \
-            (f"Invalid annotation boundaries. Expected box width and height > 0. "
-             f"Found (width, height): ({self.width, self.height}).")
-
     def _get_size(self) -> int:
         return int(self.width * self.height)
 
-    def _permute_boundary(self):
+    def _assure_box(self):
         """
-        Permutes boundary so that the box shape with [[x_min, y_min], [x_max, y_max]] is assured.
+        Sets boundary so that the box shape with [[x_min, y_min], [x_max, y_max]] is assured.
         """
         t_boundary = np.transpose(self.boundary)
         self.boundary = np.array(
