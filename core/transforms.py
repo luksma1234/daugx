@@ -1,22 +1,64 @@
+from typing import List, Tuple, Optional
+
 import numpy as np
+
 from .annotations import Annotations
-from typing import List
 
 
-class SingleImageTransform:
-    def __init__(self, image: np.ndarray, annots: Annotations):
+class SITransform:
+    """
+    Single Image Transform
+    """
+    def __init__(self, image: Optional[np.ndarray] = None, annots: Optional[Annotations] = None):
         self.image = image
         self.annots = annots
-        self.image_width, self.image_height = np.shape(image)[:2]
 
-    def apply_on_image(self):
+    def apply(
+            self,
+            image: Optional[np.ndarray] = None,
+            annots: Optional[Annotations] = None
+    ) -> Tuple[np.ndarray, Annotations]:
+        """
+        Applies the transformation to the image and its annotations.
+        Args:
+            image (Optional[np.ndarray]): Any image as numpy array. Only necessary as input if transform was not
+                                          initialized with image.
+            annots (Optional[Annotations]): Annotations of image. Only necessary as input if transform was not
+                                            initialized with annotations.
+        Returns:
+            (Tuple[np.ndarray, Annotations]): Tuple of transformed image and transformed annotations
+        """
+        if image is not None:
+            self.image = image
+        if annots is not None:
+            self.annots = annots
+        if self.image is None:
+            raise ValueError("Unable to perform transformation. Image was not provided.")
+        self._apply_on_image()
+        self._apply_on_annots()
+        return self.image, self.annots
+
+    def _apply_on_image(self):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Applied the transformation to the image.
+        """
         pass
 
-    def apply_on_annots(self):
+    def _apply_on_annots(self):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Applied the transformation to the annotations.
+        """
         pass
 
 
-class MultiImageTransform:
+class MITransform:
+    """
+    Multi Image Transform
+    """
     def __init__(self, image_list: List[np.ndarray], annots_list: List[Annotations]):
         self.image_list = image_list
         self.annots_list = annots_list
@@ -34,7 +76,10 @@ class MultiImageTransform:
         pass
 
 
-class ImageOnlyTransform:
+class IOTransform:
+    """
+    Image Only Transform
+    """
     def __init__(self, image: np.ndarray):
         self.image = image
 

@@ -1,5 +1,5 @@
 import cv2
-from .annotations import Annotations, Annotation, BoxAnnotation
+from .annotations import Annotations, Annotation
 from ..utils import is_in_dict
 import numpy as np
 from typing import Tuple, Union, Dict, Optional
@@ -58,7 +58,7 @@ class Visualize:
     def _assemble(self):
         for annot in self.annots:
             # denormalized boundary
-            boundary = annot.boundary.astype(np.int32)
+            boundary = annot.boundary.points.astype(np.int32)
             boundary = boundary.reshape((-1, 1, 2))
             color = DEFAULT_COLOR if self.colors is None else self.colors[annot.label.name]
             self.image = cv2.polylines(

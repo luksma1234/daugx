@@ -4,10 +4,11 @@ from typing import List, Optional, Union
 import numpy as np
 
 from ..utils import new_id
-import boundaries
-from .boundaries import Boundary
+
+from .boundaries import Boundary, BBoxBoundary, KeyPBoundary, PolyBoundary
 
 BOUNDARY_NAME = "Boundary"
+BOUNDARY_TYPE_OBJS = [BBoxBoundary, KeyPBoundary, PolyBoundary]
 
 
 class Label:
@@ -167,8 +168,8 @@ class Annotation:
             if boundary_type is None:
                 raise ValueError("Expected boundary type when initializing new boundary. Found None.")
             else:
-                for name, obj in inspect.getmembers(boundaries):
-                    if name == boundary_type + BOUNDARY_NAME:
+                for obj in BOUNDARY_TYPE_OBJS:
+                    if obj.__name__ == boundary_type + BOUNDARY_NAME:
                         self.__boundary = obj(points)
                         break
                 else:
@@ -191,6 +192,9 @@ class Annotation:
             y_min (Optional - int): new min y value of border
             y_max (Optional - int): new max y value of border
         """
+        if self.__border is None:
+            self.__border = Border(x_max, y_max)
+            return
         self.__border.set(x_min, x_max, y_min, y_max)
         self.__border.rebase()
         # adapt boundary
@@ -219,10 +223,12 @@ class Annotations:
     -> affine transform annots with translations
     -> add all annots of all Annotations to first annotation
     """
-    def __init__(self, image_width: int, image_height: int) -> None:
+    def __init__(self, image_width: int, image_height: int, boundary_type: str) -> None:
+
         self.annots: List[Annotation] = []
         self.width = image_width
         self.height = image_height
+        self.boundary_type = boundary_type
 
     def __getitem__(self, index: int) -> Annotation:
         return self.annots[index]
@@ -261,21 +267,20 @@ class Annotations:
         if y_max is not None:
             self.height -= self.height - y_max
 
-    def add(self, label_id: int, boundary_points: np.ndarray, boundary_type: str, label_name: Optional[str] = None) -> None:
+    def add(self, label_id: int, boundary_points: np.ndarray,label_name: Optional[str] = None) -> None:
         """
         Adds a new annotation.
         Args:
             label_id (int): ID of annotation label
             label_name (Optional[str]): name of annotation label
             boundary_points (np.ndarray): numpy array of boundary points. Must be of shape (n, 2).
-            boundary_type (str): type of boundary for accepted types refer to Annotation class
         """
         self.annots.append(Annotation(
             label_id,
             boundary_points,
             self.width,
             self.height,
-            boundary_type,
+            self.boundary_type,
             label_name
         ))
 
@@ -290,19 +295,19 @@ class Annotations:
                 annotation.valid = False
         self.clean()
     
-    def shift(self, x_shift: float, y_shift: float):
+    def shift(self, x_shift: Optional[float] = None, y_shift: Optional[float] = None):
         """
-        Shifts boundaries of all annotations.
+        Shifts boundaries of all annotations. If shift is None - no shift on that axis is performed.
         Args:
-            x_shift (float): absolute shift on the x-axis in pixels
-            y_shift (float): absolute shift on the y-axis in pixels
+            x_shift (float): absolute shift on the x-axis in pixels.
+            y_shift (float): absolute shift on the y-axis in pixels.
         """
         for annot in self.annots:
             annot.boundary.shift(x_shift, y_shift)
 
-    def scale(self, x_scale: float, y_scale: float):
+    def scale(self, x_scale: Optional[float] = None, y_scale: Optional[float] = None):
         """
-        Scales borders and boundaries of all annotations.
+        Scales borders and boundaries of all annotations. If scale is None - no scale on that axis is performed.
         Args:
             x_scale (float): scale factor on the x-axis
             y_scale (float): scale factor on the y-axis

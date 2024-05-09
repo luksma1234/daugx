@@ -76,9 +76,10 @@ class Boundary:
         Calculates the area which is enclosed by the boundary. Area is returned as float of n pixel².
         """
 
-    def set(self, points: np.ndarray):
+    def set(self, points: np.ndarray, validate: bool = True):
         self.__points = points
-        self.validate()
+        if validate:
+            self.validate()
 
     def clip(
             self,
@@ -105,7 +106,6 @@ class Boundary:
                 )
             ).T
         )
-        self.validate()
 
     def shift(self, x_shift: float, y_shift: float):
         """
@@ -114,8 +114,7 @@ class Boundary:
             x_shift (float): Shift of x coordinates
             y_shift (float): Shift of y coordinates
         """
-        self.__points += np.array([x_shift, y_shift])
-        self.validate()
+        self.set(self.__points + np.array([x_shift, y_shift]))
 
     def scale(self, x_scale: float, y_scale: float):
         """
@@ -130,8 +129,7 @@ class Boundary:
                 [0, y_scale]
             ]
         )
-        self.__points = np.einsum("bi, ij -> bi", self.__points, matrix)
-        self.validate()
+        self.set(np.einsum("bi, ij -> bi", self.__points, matrix))
 
     def rotate(self, angle: float):
         """
@@ -146,8 +144,7 @@ class Boundary:
                 [np.sin(rad_angle), np.cos(rad_angle)]
             ]
         )
-        self.__points = np.einsum("bi, ij -> bi", self.__points, matrix)
-        self.validate()
+        self.set(np.einsum("bi, ij -> bi", self.__points, matrix))
 
 
 class BBoxBoundary(Boundary):
@@ -161,19 +158,21 @@ class BBoxBoundary(Boundary):
         """
         Forces boundary as min-max box.
         """
-        points_x, points_y = self.__points.T
-        self.__points = np.array(
-            [
-                [min(points_x), min(points_y)],
-                [max(points_x), max(points_y)]
-            ]
+        points_x, points_y = self.points.T
+        self.set(
+            np.array(
+                [
+                    [min(points_x), min(points_y)],
+                    [max(points_x), max(points_y)]
+                ]
+            ), validate=False
         )
 
     def __get_area(self) -> float:
         """
         Calculates box area as product of box width and box height.
         """
-        return np.prod(self.__points[1] - self.__points[0])
+        return np.prod(self.points[1] - self.points[0])
 
 
 class KeyPBoundary(Boundary):
