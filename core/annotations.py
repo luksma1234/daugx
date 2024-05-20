@@ -1,276 +1,236 @@
+from typing import List, Optional, Union
+
 import numpy as np
-from typing import Tuple, List
+
 from ..utils import new_id
+
+from .boundaries import Boundary, BBoxBoundary, KeyPBoundary, PolyBoundary
+from.borders import ImageBorder
+
+BOUNDARY_NAME = "Boundary"
+BOUNDARY_TYPE_OBJS = [BBoxBoundary, KeyPBoundary, PolyBoundary]
 
 
 class Label:
-    def __init__(self, label_id: int, name: str = None):
+    def __init__(self, label_id: int, name: Optional[str] = None) -> None:
+        """
+        Defines a Label for any kind of data.
+        Args:
+            label_id (int): ID of label
+            name (Optional - str): Name of label
+        """
         self.id = label_id
         self.name = name
 
 
 class Annotation:
-    def __init__(self, boundary: np.ndarray, label: Label):
+    def __init__(
+            self,
+            label_id: int,
+            boundary_points: np.ndarray,
+            image_border: ImageBorder,
+            boundary_type: str,
+            label_name: Optional[str] = None
+    ) -> None:
         """
-        A Roof class for all annotations.
-        :param boundary: Any boundary of any object as numpy array. Can be a mask, a box, etc...
-                         A boundary always includes two or more two-dimensional points on the image (x, y) plane.
-                         Boundaries are always normalized and will therefore be forced in the range of 0 to 1.
-        :param label: Any form of label represented as a dict.
+        A Generic implementation of annotations.
+        Args:
+            label_name (str): name of annotation label
+            label_id (int): id of annotation label
+            boundary_points (np.ndarray): points of boundary as numpy array. Points are always in shape (n, 2).
+            image_width (int): image width in pixel
+            image_height (int): image height in pixel
+            boundary_type (str): type of boundary - accepted types are: BBox, KeyP, Poly or an empty string
         """
-        self.boundary = np.clip(boundary, 0, 1)
-        self.label = label
+        self.__border: ImageBorder = image_border
+        self.__boundary: Boundary | None = None
+        self.set_boundary(boundary_points, boundary_type, self.__border)
+        self.__label: Label | None = None
+        self.set_label(label_id, label_name)
+
         self.id = new_id()
-        self.size = self._get_size()
-        self.pos = self._get_pos()
-        self.invalid = False
+        self.valid = True
+        self.verify()
 
-    def set_label(self, label: Label):
-        self.label = label
+    @property
+    def boundary(self):
+        return self.__boundary
 
-    def verify(self):
-        """
-        OVERRIDE IN SUBCLASS
-        """
-        pass
+    @property
+    def label(self):
+        return self.__label
 
-    def _get_size(self) -> int:
-        """
-        OVERRIDE IN SUBCLASS
-        """
-        pass
+    @property
+    def center(self):
+        return self.__boundary.center
 
-    def _get_pos(self) -> Tuple[float, float]:
-        """
-        Position is always the tuple (x_min, y_min) for all x and y values in boundary.
-        """
-        t_boundary = np.transpose(self.boundary)
-        return min(t_boundary[0]), min(t_boundary[1])
+    @property
+    def area(self):
+        return self._get_area()
 
-    def set_boundary(self, boundary):
-        self.__init__(boundary, self.label)
+    def set_label(self, label_id: Optional[int] = None, label_name: Optional[str] = None) -> None:
+        if self.__label is None:
+            self.__label = Label(label_id, label_name)
+            return
+        if label_id is not None:
+            self.__label.id = label_id
+        if label_name is not None:
+            self.__label.name = label_name
 
-    def cut_min(self, new_min: Tuple[int, int]):
-        """
-        Cuts all points of boundary to a new min value.
-        """
-        # check if all points are outside new min
-        if all(any(dim_new_min > dim_point for dim_new_min, dim_point in zip(new_min, point))
-               for point in self.boundary):
-            self.invalid = True
+    def set_boundary(self, points: np.ndarray, boundary_type: str, img_border: ImageBorder) -> None:
+        if self.__boundary is None:
+            for obj in BOUNDARY_TYPE_OBJS:
+                if obj.__name__ == boundary_type + BOUNDARY_NAME:
+                    self.__boundary = obj(points, img_border)
+                    break
+            else:
+                raise ValueError(f"Boundary type '{boundary_type}' could not be found.")
         else:
-            self.boundary = np.array(
-                [(dim_new_min if dim_new_min > dim_point else dim_point
-                  for dim_new_min, dim_point in zip(new_min, point))
-                 for point in self.boundary]
-            )
+            self.__boundary.set(points)
 
-    def cut_max(self, new_max: Tuple[int, int]):
+    def verify(self) -> None:
         """
-        Cuts all points of boundary to a new max_value.
+        Sets annotation valid flag based on boundary validity.
         """
-        # check if all points are outside new max
-        if all(any(dim_new_max < dim_point for dim_new_max, dim_point in zip(new_max, point))
-               for point in self.boundary):
-            self.invalid = True
-        else:
-            self.boundary = np.array(
-                [(dim_new_max if dim_new_max < dim_point else dim_point
-                  for dim_new_max, dim_point in zip(new_max, point))
-                 for point in self.boundary]
-            )
+        if not self.valid:
+            return
+        self.valid = self.__boundary.valid
 
-    def check_size(self, min_size: int = None, max_size: int = None):
-        if min_size is not None:
-            self.invalid = self.size < min_size
-        if max_size is not None:
-            if not self.invalid:
-                self.invalid = self.size > max_size
+    def _get_area(self) -> float:
+        """
+        Gets the area which is enclosed by the boundary.
+        """
+        return self.__boundary.area
+
+    def clip(self):
+        """
+        Clips boundary to border
+        """
+        self.__boundary.clip()
 
 
 class Annotations:
-    def __init__(self, img_dims: Tuple[int, int]):
+    """
+    How does mosaic work?
+    -> set border to new size (double) for all 4 Annotations.
+    -> affine transform annots with translations
+    -> add all annots of all Annotations to first annotation
+    """
+    def __init__(self, image_width: int, image_height: int, boundary_type: str) -> None:
         self.annots: List[Annotation] = []
-        self.img_dims = img_dims
+        self.width = image_width
+        self.height = image_height
+        self.boundary_type = boundary_type
+        self.border = ImageBorder(self.width, self.height)
 
-    def shift(self, shift: Tuple[float, float]):
-        self.transf(self.get_transf_mat(translation=shift))
+    def __getitem__(self, index: int) -> Annotation:
+        return self.annots[index]
 
-    def scale(self, scale: Tuple[float, float]):
-        self.transf(self.get_transf_mat(scale=scale))
+    def clean(self):
+        """
+        Cleans list of annotations from invalid annots.
+        Setting annots as invalid can also be an option to filter annots.
+        """
+        self.annots = [annot for annot in self.annots if not annot.valid]
 
-    def rotate(self, angle: int or float):
-        self.transf(self.get_transf_mat(angle=angle))
-
-    def perspective(self, distortion: Tuple[float, float]):
-        self.transf(self.get_transf_mat(distortion=distortion))
-
-    def add(self, annot: Annotation):
-        self.annots.append(annot)
-
-    def filter(
+    def set_border(
             self,
-            min_size: int = None,
-            max_size: int = None,
-            max_pos: Tuple[int, int] = None,
-            min_pos: Tuple[int, int] = None,
-            label: Label = None
-    ):
-        filter_annots = []
-        for annot in self.annots:
-            # check min size
-            if min_size is not None and annot.size < min_size:
-                filter_annots.append(annot)
-            # check max size
-            elif max_size is not None and annot.size > max_size:
-                filter_annots.append(annot)
-            # check max_pos
-            elif (max_pos is not None
-                  and any((dim_pos > dim_max_pos for dim_pos, dim_max_pos in zip(annot.pos, max_pos)))):
-                filter_annots.append(annot)
-            # check min_pos
-            elif (min_pos is not None
-                  and any((dim_pos < dim_min_pos for dim_pos, dim_min_pos in zip(annot.pos, min_pos)))):
-                filter_annots.append(annot)
-            elif label is not None and label.id == annot.label.id:
-                filter_annots.append(annot)
-        for annot in filter_annots:
-            self.remove(annot)
-
-    def remove(self, value):
-        self.annots.remove(value)
-
-    def transf(self, transf_mat: np.ndarray):
+            x_min: Optional[int] = None,
+            y_min: Optional[int] = None,
+            x_max: Optional[int] = None,
+            y_max: Optional[int] = None
+    ) -> None:
         """
-        Applies a transformation matrix to all annotations.
-        Uses einsum with batch index b, coordinate length i and j for coordinate depth.
-        Coordinates are extended by 1 to fit the matrix size. After the transformation, the first two values of the
-        resulting vector, are multiplied with the entry at index 2 (or 3 mathematically). This index performs scaling.
-        Einsum returns vector with dims bx3. Unscales boundaries and reinitializes annotations with new boundaries.
-        :param transf_mat: 3x3 Transformation Matrix
-        """
-        for annot in self.annots:
-            boundary = annot.boundary
-            exp_boundary = np.hstack((boundary, np.ones((len(boundary), 1))))
-            transf_scaled_points = np.einsum("bi, ij -> bj", exp_boundary, transf_mat)
-            annot.set_boundary(self._unscale(transf_scaled_points))
-
-    @staticmethod
-    def _unscale(scaled_points: np.ndarray):
-        points = scaled_points[:, :2]
-        scaler = np.hstack((scaled_points[:, 2], scaled_points[:, 2]))
-        return np.einsum("ij, ji -> ij", points, scaler)
-
-    @staticmethod
-    def get_transf_mat(
-            scale: Tuple[float, float] = None,
-            angle: float = None,
-            translation: Tuple[float, float] = None,
-            distortion: Tuple[float, float] = None
-    ):
-        """
-        Create a transformation matrix based on specified parameters.
-
+        Sets a new boundary for annotations. Can be used to crop/scale/widen image borders.
+        Reinitializes width and height.
         Args:
-            scale (tuple): Scaling factors along x and y axes (sx, sy).
-            angle (float): Rotation angle in degrees.
-            translation (tuple): Translation along x and y axes (tx, ty).
-            distortion (tuple): Perspective distortion coefficients (px, py).
-
-        Returns:
-            numpy.ndarray: Transformation matrix.
+            x_min (Optional - int): new min x value of border
+            y_min (Optional - int): new min y value of border
+            x_max (Optional - int): new max x value of border
+            y_max (Optional - int): new max y value of border
         """
-        matrix = np.identity(3)
+        self.border.set(x_min, y_min, x_max, y_max)
+        if x_min is not None:
+            self.width -= x_min
+        if x_max is not None:
+            self.width -= self.width - x_max
+        if y_min is not None:
+            self.height -= y_min
+        if y_max is not None:
+            self.height -= self.height - y_max
 
-        if scale is not None:
-            sx, sy = scale
-            scale_matrix = np.array([[sx, 0, 0], [0, sy, 0], [0, 0, 1]])
-            matrix = np.dot(scale_matrix, matrix)
-
-        if angle is not None:
-            angle_rad = np.radians(angle)
-            rotation_matrix = np.array([[np.cos(angle_rad), -np.sin(angle_rad), 0],
-                                        [np.sin(angle_rad), np.cos(angle_rad), 0],
-                                        [0, 0, 1]])
-            matrix = np.dot(rotation_matrix, matrix)
-
-        if translation is not None:
-            tx, ty = translation
-            translation_matrix = np.array([[1, 0, tx], [0, 1, ty], [0, 0, 1]])
-            matrix = np.dot(translation_matrix, matrix)
-
-        if distortion is not None:
-            dx, dy = distortion
-            perspective_matrix = np.array([[1, 0, dx], [0, 1, dy], [0, 0, 1]])
-            matrix = np.dot(perspective_matrix, matrix)
-
-        return matrix
-
-
-class BoxAnnotation(Annotation):
-    def __init__(self, boundary: np.ndarray, label: Label):
-        self._permute_boundary()
-        self.width = self.boundary[2] - self.boundary[0]
-        self.height = self.boundary[3] - self.boundary[1]
-        super().__init__(boundary, label)
-
-    def verify(self):
-        assert self.width >= 0 and self.height >= 0, \
-            (f"Invalid annotation boundaries. Expected box width and height > 0. "
-             f"Found (width, height): ({self.width, self.height}).")
-
-    def _get_size(self) -> int:
-        return int(self.width * self.height)
-
-    def _permute_boundary(self):
+    def scale_border(self, x_scale: float = 1, y_scale: float = 1):
         """
-        Permutes boundary so that the box shape with [[x_min, y_min], [x_max, y_max]] is assured.
+        Scales the current border by an x and y factor
         """
-        t_boundary = np.transpose(self.boundary)
-        self.boundary = np.array(
-            [
-                [min(t_boundary[0]), min(t_boundary[1])],
-                [max(t_boundary[0]), max(t_boundary[1])]
-            ]
+        self.set_border(
+            0,
+            0,
+            int(x_scale * self.border.width),
+            int(y_scale * self.border.height)
         )
+        self.width = self.width * x_scale
+        self.height = self.height * y_scale
 
+    def rebase_border(self):
+        self.border.rebase()
 
+    def add(self, label_id: int, boundary_points: np.ndarray, label_name: Optional[str] = None) -> None:
+        """
+        Adds a new annotation.
+        Args:
+            label_id (int): ID of annotation label
+            label_name (Optional[str]): name of annotation label
+            boundary_points (np.ndarray): numpy array of boundary points. Must be of shape (n, 2).
+        """
+        self.annots.append(Annotation(
+            label_id,
+            boundary_points,
+            self.border,
+            self.boundary_type,
+            label_name
+        ))
 
+    def filter(self, drop_labels: List[Union[str, int]]):
+        """
+        Filters annotations by label. Flags annotation as invalid if it belongs to a drop label.
+        Args:
+            drop_labels (List[Union[str, int]]): List of label names or ids to be dropped. List can be mixed.
+        """
+        for annotation in self.annots:
+            if annotation.label.id or annotation.label.name in drop_labels:
+                annotation.valid = False
+        self.clean()
+    
+    def shift(self, x_shift: Optional[float] = 0, y_shift: Optional[float] = 0):
+        """
+        Shifts boundaries of all annotations. If shift is None - no shift on that axis is performed.
+        Args:
+            x_shift (float): absolute shift on the x-axis in pixels.
+            y_shift (float): absolute shift on the y-axis in pixels.
+        """
+        for annot in self.annots:
+            annot.boundary.shift(x_shift, y_shift)
+            annot.clip()
 
+    def scale(self, x_scale: Optional[float] = 1, y_scale: Optional[float] = 1):
+        """
+        Scales borders and boundaries of all annotations. If scale is None - no scale on that axis is performed.
+        Args:
+            x_scale (float): scale factor on the x-axis
+            y_scale (float): scale factor on the y-axis
+        """
+        for annot in self.annots:
+            annot.boundary.scale(x_scale, y_scale)
+            annot.clip()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    def rotate(self, angle: float):
+        """
+        Rotates boundaries of all annotations.
+        Args:
+            angle (float): Rotation angle in deg
+        """
+        for annot in self.annots:
+            annot.boundary.rotate(angle)
+            annot.clip()
 

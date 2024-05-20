@@ -8,6 +8,14 @@ from typing import List
 import json
 
 
+def is_in_dict(key: str, dict_: dict):
+    try:
+        _ = dict_[key]
+        return True
+    except KeyError:
+        return False
+
+
 def new_id() -> str:
     return str(uuid.uuid4())
 
