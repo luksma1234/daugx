@@ -1,4 +1,3 @@
-import inspect
 from typing import List, Optional, Union
 
 import numpy as np
@@ -74,7 +73,7 @@ class Border:
             y_max (Optional - int): new max y value of border
 
         """
-        assert x_max > x_min > 0 and y_min > y_max > 0, "Invalid image border. Border is 0 or negative."
+        assert x_max > x_min >= 0 and y_max > y_min >= 0, "Invalid image border. Border is 0 or negative."
         if x_min is not None:
             self.__x_min = x_min
         if x_max is not None:
@@ -124,7 +123,7 @@ class Annotation:
             boundary_type (str): type of boundary - accepted types are: BBox, KeyP, Poly or an empty string
         """
         self.__boundary: Boundary | None = None
-        self.set_boundary(boundary_points, boundary_type)
+        self.set_boundary(boundary_points, boundary_type, (image_height, image_width))
         self.__label: Label | None = None
         self.set_label(label_id, label_name)
         self.__border: Border | None = None
@@ -163,17 +162,14 @@ class Annotation:
         if label_name is not None:
             self.__label.name = label_name
 
-    def set_boundary(self, points: np.ndarray, boundary_type: Optional[str] = None) -> None:
+    def set_boundary(self, points: np.ndarray, boundary_type: str, img_dims: tuple) -> None:
         if self.__boundary is None:
-            if boundary_type is None:
-                raise ValueError("Expected boundary type when initializing new boundary. Found None.")
+            for obj in BOUNDARY_TYPE_OBJS:
+                if obj.__name__ == boundary_type + BOUNDARY_NAME:
+                    self.__boundary = obj(points, img_dims)
+                    break
             else:
-                for obj in BOUNDARY_TYPE_OBJS:
-                    if obj.__name__ == boundary_type + BOUNDARY_NAME:
-                        self.__boundary = obj(points)
-                        break
-                else:
-                    raise ValueError(f"Boundary type '{boundary_type}' could not be found.")
+                raise ValueError(f"Boundary type '{boundary_type}' could not be found.")
         else:
             self.__boundary.set(points)
 
@@ -215,6 +211,12 @@ class Annotation:
         """
         return self.__boundary.area
 
+    def clip(self):
+        """
+        Clips boundary to border
+        """
+        # self.__boundary.clip(0, self.__border.width, 0, self.__border.height)
+
 
 class Annotations:
     """
@@ -224,7 +226,6 @@ class Annotations:
     -> add all annots of all Annotations to first annotation
     """
     def __init__(self, image_width: int, image_height: int, boundary_type: str) -> None:
-
         self.annots: List[Annotation] = []
         self.width = image_width
         self.height = image_height
@@ -267,7 +268,7 @@ class Annotations:
         if y_max is not None:
             self.height -= self.height - y_max
 
-    def add(self, label_id: int, boundary_points: np.ndarray,label_name: Optional[str] = None) -> None:
+    def add(self, label_id: int, boundary_points: np.ndarray, label_name: Optional[str] = None) -> None:
         """
         Adds a new annotation.
         Args:
@@ -295,7 +296,7 @@ class Annotations:
                 annotation.valid = False
         self.clean()
     
-    def shift(self, x_shift: Optional[float] = None, y_shift: Optional[float] = None):
+    def shift(self, x_shift: Optional[float] = 0, y_shift: Optional[float] = 0):
         """
         Shifts boundaries of all annotations. If shift is None - no shift on that axis is performed.
         Args:
@@ -304,8 +305,9 @@ class Annotations:
         """
         for annot in self.annots:
             annot.boundary.shift(x_shift, y_shift)
+            annot.clip()
 
-    def scale(self, x_scale: Optional[float] = None, y_scale: Optional[float] = None):
+    def scale(self, x_scale: Optional[float] = 1, y_scale: Optional[float] = 1):
         """
         Scales borders and boundaries of all annotations. If scale is None - no scale on that axis is performed.
         Args:
@@ -320,6 +322,7 @@ class Annotations:
                 0,
                 int(y_scale * annot.border.height)
             )
+            annot.clip()
 
     def rotate(self, angle: float):
         """
@@ -329,4 +332,5 @@ class Annotations:
         """
         for annot in self.annots:
             annot.boundary.rotate(angle)
+            annot.clip()
 
