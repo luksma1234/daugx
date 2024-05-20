@@ -5,6 +5,7 @@ import numpy as np
 from ..utils import new_id
 
 from .boundaries import Boundary, BBoxBoundary, KeyPBoundary, PolyBoundary
+from.borders import ImageBorder
 
 BOUNDARY_NAME = "Boundary"
 BOUNDARY_TYPE_OBJS = [BBoxBoundary, KeyPBoundary, PolyBoundary]
@@ -22,93 +23,12 @@ class Label:
         self.name = name
 
 
-class Border:
-    def __init__(self, width: int, height: int) -> None:
-        """
-        Defines a border of an image.
-        Args:
-            width (int): width of image in pixels
-            height (int): height of image in pixels
-        """
-        self.__width = width
-        self.__height = height
-
-        self.__x_min = 0
-        self.__x_max = self.__width
-        self.__y_min = 0
-        self.__y_max = self.__height
-
-    @property
-    def width(self):
-        return self.__width
-
-    @property
-    def height(self):
-        return self.__height
-
-    @property
-    def corners(self):
-        return np.array(
-            [
-                [self.__x_min, self.__x_max],
-                [self.__y_min, self.__y_max]
-            ], np.int32
-        )
-
-    def set(
-            self,
-            x_min: Optional[int] = None,
-            x_max: Optional[int] = None,
-            y_min: Optional[int] = None,
-            y_max: Optional[int] = None
-    ) -> None:
-        """
-        Sets corner points of border. This adapts the border to crops or scaling of the image. Input values cannot be
-        negative. Corner points are used for further calculation until the border gets rebased. Values which are not
-        provided will stay as is.
-        Args:
-            x_min (Optional - int): new min x value of border
-            x_max (Optional - int): new max x value of border
-            y_min (Optional - int): new min y value of border
-            y_max (Optional - int): new max y value of border
-
-        """
-        assert x_max > x_min >= 0 and y_max > y_min >= 0, "Invalid image border. Border is 0 or negative."
-        if x_min is not None:
-            self.__x_min = x_min
-        if x_max is not None:
-            self.__x_max = x_max
-        if y_min is not None:
-            self.__y_min = y_min
-        if y_max is not None:
-            self.__y_max = y_max
-
-    def reset(self) -> None:
-        """
-        Resets the current border Corner points.
-        """
-        self.__x_min = 0
-        self.__x_max = self.__width
-        self.__y_min = 0
-        self.__y_max = self.__height
-
-    def rebase(self) -> None:
-        """
-        Rebase the border by calculating the new width and height from the current corner points. Resets the border
-        subsequently.
-        """
-        self.__width = self.__x_max - self.__x_min
-        self.__height = self.__y_max - self.__y_min
-        self.reset()
-
-
 class Annotation:
     def __init__(
             self,
             label_id: int,
             boundary_points: np.ndarray,
-            image_width: int,
-            image_height: int,
+            image_border: ImageBorder,
             boundary_type: str,
             label_name: Optional[str] = None
     ) -> None:
@@ -122,12 +42,11 @@ class Annotation:
             image_height (int): image height in pixel
             boundary_type (str): type of boundary - accepted types are: BBox, KeyP, Poly or an empty string
         """
+        self.__border: ImageBorder = image_border
         self.__boundary: Boundary | None = None
-        self.set_boundary(boundary_points, boundary_type, (image_height, image_width))
+        self.set_boundary(boundary_points, boundary_type, self.__border)
         self.__label: Label | None = None
         self.set_label(label_id, label_name)
-        self.__border: Border | None = None
-        self.set_border(0, image_width, 0, image_height)
 
         self.id = new_id()
         self.valid = True
@@ -140,10 +59,6 @@ class Annotation:
     @property
     def label(self):
         return self.__label
-
-    @property
-    def border(self):
-        return self.__border
 
     @property
     def center(self):
@@ -162,40 +77,16 @@ class Annotation:
         if label_name is not None:
             self.__label.name = label_name
 
-    def set_boundary(self, points: np.ndarray, boundary_type: str, img_dims: tuple) -> None:
+    def set_boundary(self, points: np.ndarray, boundary_type: str, img_border: ImageBorder) -> None:
         if self.__boundary is None:
             for obj in BOUNDARY_TYPE_OBJS:
                 if obj.__name__ == boundary_type + BOUNDARY_NAME:
-                    self.__boundary = obj(points, img_dims)
+                    self.__boundary = obj(points, img_border)
                     break
             else:
                 raise ValueError(f"Boundary type '{boundary_type}' could not be found.")
         else:
             self.__boundary.set(points)
-
-    def set_border(
-            self,
-            x_min: Optional[int] = None,
-            x_max: Optional[int] = None,
-            y_min: Optional[int] = None,
-            y_max: Optional[int] = None
-    ) -> None:
-        """
-        Sets a new border within the coordinate system of the old border. Clips boundary to new border.
-        Args:
-            x_min (Optional - int): new min x value of border
-            x_max (Optional - int): new max x value of border
-            y_min (Optional - int): new min y value of border
-            y_max (Optional - int): new max y value of border
-        """
-        if self.__border is None:
-            self.__border = Border(x_max, y_max)
-            return
-        self.__border.set(x_min, x_max, y_min, y_max)
-        self.__border.rebase()
-        # adapt boundary
-        self.__boundary.shift(-x_min, -y_min)
-        self.__boundary.clip(0, self.__border.width, 0, self.__border.height)
 
     def verify(self) -> None:
         """
@@ -215,7 +106,7 @@ class Annotation:
         """
         Clips boundary to border
         """
-        # self.__boundary.clip(0, self.__border.width, 0, self.__border.height)
+        self.__boundary.clip()
 
 
 class Annotations:
@@ -230,6 +121,7 @@ class Annotations:
         self.width = image_width
         self.height = image_height
         self.boundary_type = boundary_type
+        self.border = ImageBorder(self.width, self.height)
 
     def __getitem__(self, index: int) -> Annotation:
         return self.annots[index]
@@ -241,11 +133,11 @@ class Annotations:
         """
         self.annots = [annot for annot in self.annots if not annot.valid]
 
-    def border(
+    def set_border(
             self,
             x_min: Optional[int] = None,
-            x_max: Optional[int] = None,
             y_min: Optional[int] = None,
+            x_max: Optional[int] = None,
             y_max: Optional[int] = None
     ) -> None:
         """
@@ -253,12 +145,11 @@ class Annotations:
         Reinitializes width and height.
         Args:
             x_min (Optional - int): new min x value of border
-            x_max (Optional - int): new max x value of border
             y_min (Optional - int): new min y value of border
+            x_max (Optional - int): new max x value of border
             y_max (Optional - int): new max y value of border
         """
-        for annot in self.annots:
-            annot.set_border(x_min, x_max, y_min, y_max)
+        self.border.set(x_min, y_min, x_max, y_max)
         if x_min is not None:
             self.width -= x_min
         if x_max is not None:
@@ -267,6 +158,22 @@ class Annotations:
             self.height -= y_min
         if y_max is not None:
             self.height -= self.height - y_max
+
+    def scale_border(self, x_scale: float = 1, y_scale: float = 1):
+        """
+        Scales the current border by an x and y factor
+        """
+        self.set_border(
+            0,
+            0,
+            int(x_scale * self.border.width),
+            int(y_scale * self.border.height)
+        )
+        self.width = self.width * x_scale
+        self.height = self.height * y_scale
+
+    def rebase_border(self):
+        self.border.rebase()
 
     def add(self, label_id: int, boundary_points: np.ndarray, label_name: Optional[str] = None) -> None:
         """
@@ -279,8 +186,7 @@ class Annotations:
         self.annots.append(Annotation(
             label_id,
             boundary_points,
-            self.width,
-            self.height,
+            self.border,
             self.boundary_type,
             label_name
         ))
@@ -316,12 +222,6 @@ class Annotations:
         """
         for annot in self.annots:
             annot.boundary.scale(x_scale, y_scale)
-            annot.set_border(
-                0,
-                int(x_scale * annot.border.width),
-                0,
-                int(y_scale * annot.border.height)
-            )
             annot.clip()
 
     def rotate(self, angle: float):

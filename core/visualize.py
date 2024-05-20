@@ -58,7 +58,7 @@ class Visualize:
     def _assemble(self):
         for annot in self.annots:
             # denormalized boundary
-            boundary = annot.boundary.points.astype(np.int32)
+            boundary = annot.boundary.visualize.astype(np.int32)
             boundary = boundary.reshape((-1, 1, 2))
             color = DEFAULT_COLOR if self.colors is None else self.colors[annot.label.name]
             self.image = cv2.polylines(

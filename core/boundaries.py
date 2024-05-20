@@ -1,15 +1,23 @@
 import math
 from typing import List, Optional, Union
 
+from .borders import ImageBorder
+
 import numpy as np
 
 
 class Boundary:
-    def __init__(self, points: np.ndarray, img_dims: tuple):
+    def __init__(self, points: np.ndarray, img_border: ImageBorder):
         self._points = points
-        self.img_dims = img_dims
-        # self.validate()
+        self.border = img_border
+        self.validate()
         self.valid = True
+
+    def clean(self):
+        """
+        Cleans Boundary by removing duplicates.
+        """
+        self._points = np.unique(self._points, axis=0)
 
     def validate(self):
         """
@@ -52,8 +60,8 @@ class Boundary:
         return self._points
 
     @property
-    def center(self):
-        return self.__get_center()
+    def boundary_center(self):
+        return self.__get_boundary_center()
 
     @property
     def area(self):
@@ -63,7 +71,7 @@ class Boundary:
     def visualize(self):
         return self._points
 
-    def __get_center(self):
+    def __get_boundary_center(self):
         """
         Calculates the center of the boundary by the mid-point between min and max x and y.
         """
@@ -72,6 +80,17 @@ class Boundary:
             [
                 (np.min(points_x) + np.max(points_x)) / 2,
                 (np.min(points_y) + np.max(points_y)) / 2
+            ]
+        )
+
+    def __get_image_center(self):
+        """
+        Calculates the center of the image by the mid-point between min and max x and y.
+        """
+        return np.array(
+            [
+                self.border.width / 2,
+                self.border.height / 2
             ]
         )
 
@@ -88,28 +107,16 @@ class Boundary:
         if validate:
             self.validate()
 
-    def clip(
-            self,
-            x_min: Optional[int] = None,
-            x_max: Optional[int] = None,
-            y_min: Optional[int] = None,
-            y_max: Optional[int] = None
-    ) -> None:
+    def clip(self) -> None:
         """
-        Clips all points of boundary to new min and max x and y values.
-        Invalids boundary if all points of x or y are equalized.
-        Args:
-            x_min (Optional - int): new min x value of boundary points
-            x_max (Optional - int): new max x value of boundary points
-            y_min (Optional - int): new min y value of boundary points
-            y_max (Optional - int): new max y value of boundary points
+        Clips all points of boundary to image border. Sets new points of boundary.
         """
         points_x, points_y = self._points.T
         self.set(
             np.vstack(
                 (
-                    np.clip(points_x, x_min, x_max),
-                    np.clip(points_y, y_min, y_max)
+                    np.clip(points_x, self.border.x_min, self.border.x_max),
+                    np.clip(points_y, self.border.y_min, self.border.y_max)
                 )
             ).T
         )
@@ -144,6 +151,7 @@ class Boundary:
         Args:
             angle (float): Angle of rotation in deg
         """
+        img_center = self.__get_image_center()
         rad_angle = np.deg2rad(-angle)
         matrix = np.array(
             [
@@ -151,20 +159,8 @@ class Boundary:
                 [np.sin(rad_angle), np.cos(rad_angle)]
             ]
         )
-        # ox, oy = self.center
-        # adj_points_list = []
-        # for point in self._points:
-        #     x, y = point
-        #     qx = ox + math.cos(rad_angle) * (x - ox) + math.sin(rad_angle) * (y - oy)
-        #     qy = oy + -math.sin(rad_angle) * (x - ox) + math.cos(rad_angle) * (y - oy)
-        #     adj_points_list.append([qx, qy])
-        # points = np.array(adj_points_list)
-
-        adj_points = self._points - self.center
-        points = np.einsum("bi, ij -> bj", adj_points, matrix) + self.center
-        #points = np.vstack([np.matmul(point, matrix) for point in adj_points]) + self.center
-
-        # points = np.einsum("bi, ij -> bi", self.__points, matrix)
+        adj_points = self._points - img_center
+        points = np.einsum("bi, ij -> bj", adj_points, matrix) + img_center
         self.set(points)
 
 
@@ -172,9 +168,9 @@ class BBoxBoundary(Boundary):
     """
     Boundary for bounding boxes
     """
-    def __init__(self, points: np.ndarray, img_dims: tuple):
+    def __init__(self, points: np.ndarray, img_border: ImageBorder):
         self.__min_max_points = None
-        super().__init__(points, img_dims)
+        super().__init__(points, img_border)
 
     @property
     def points(self) -> np.ndarray:
@@ -229,8 +225,8 @@ class KeyPBoundary(Boundary):
     """
     Boundary for keypoints.
     """
-    def __init__(self, points: np.ndarray, img_dims: tuple):
-        super().__init__(points, img_dims)
+    def __init__(self, points: np.ndarray, img_border: ImageBorder):
+        super().__init__(points, img_border)
 
     def __get_area(self) -> float:
         """
@@ -243,5 +239,7 @@ class PolyBoundary(Boundary):
     """
     Boundary for polygons.
     """
-    def __init__(self, points: np.ndarray, img_dims: tuple):
-        super().__init__(points, img_dims)
+    def __init__(self, points: np.ndarray, img_border: ImageBorder):
+        super().__init__(points, img_border)
+
+
