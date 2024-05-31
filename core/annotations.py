@@ -38,8 +38,6 @@ class Annotation:
             label_name (str): name of annotation label
             label_id (int): id of annotation label
             boundary_points (np.ndarray): points of boundary as numpy array. Points are always in shape (n, 2).
-            image_width (int): image width in pixel
-            image_height (int): image height in pixel
             boundary_type (str): type of boundary - accepted types are: BBox, KeyP, Poly or an empty string
         """
         self.__border: ImageBorder = image_border
@@ -169,8 +167,6 @@ class Annotations:
             int(x_scale * self.border.width),
             int(y_scale * self.border.height)
         )
-        self.width = self.width * x_scale
-        self.height = self.height * y_scale
 
     def rebase_border(self):
         self.border.rebase()
@@ -234,3 +230,17 @@ class Annotations:
             annot.boundary.rotate(angle)
             annot.clip()
 
+    def crop(self, x_min: int, y_min: int, x_max: int, y_max: int):
+        """
+        Crops all annotations into the specified boundary.
+        Args:
+            x_min (float): min value for x in percentage
+            y_min (float): min value for y in percentage
+            x_max (float): max value for x in percentage
+            y_max (float): max value for y in percentage
+        """
+        self.set_border(x_min, y_min, x_max, y_max)
+        for annot in self.annots:
+            annot.clip()
+            annot.boundary.shift(-x_min, -y_min)
+        self.rebase_border()
