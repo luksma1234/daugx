@@ -82,6 +82,7 @@ class MITransform(ABC):
         """
         self.image_list = image_list
         self.annots_list = annots_list
+        self._preprocess()
         self._apply_on_images()
         if self.annots_list is not None:
             self._apply_on_annots()
@@ -95,14 +96,19 @@ class MITransform(ABC):
     def _apply_on_annots(self) -> None:
         pass
 
+    @abstractmethod
+    def _preprocess(self) -> None:
+        pass
 
-class IOTransform:
+
+class IOTransform(ABC):
     """
     Image Only Transform
     """
     def __init__(self):
         pass
 
+    @abstractmethod
     def apply_on_image(self):
         pass
 

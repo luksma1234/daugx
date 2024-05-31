@@ -1,5 +1,6 @@
 import math
 from typing import Optional
+from copy import deepcopy
 
 import numpy as np
 import scipy as sp
@@ -162,13 +163,13 @@ class Mosaic(MITransform):
         for image, annots in zip(self.image_list, self.annots_list):
             if annots.width == self.unify_width and annots.height == self.unify_height:
                 prep_img, prep_annots = image, annots
-                continue
-            if self.mode == "resize":
-                prep_img, prep_annots = resizer.apply(image, annots)
-            elif self.mode == "crop":
-                raise "NOT IMPLEMENTED YET"
             else:
-                raise f"Unknown mode for Mosaic '{self.mode}'."
+                if self.mode == "resize":
+                    prep_img, prep_annots = resizer.apply(image, annots)
+                elif self.mode == "crop":
+                    raise "NOT IMPLEMENTED YET"
+                else:
+                    raise f"Unknown mode for Mosaic '{self.mode}'."
             preprocessed_images.append(prep_img)
             preprocessed_annots.append(prep_annots)
         self.image_list = preprocessed_images
@@ -189,10 +190,50 @@ class Mosaic(MITransform):
         self.annots_list[3].shift(x_shift=self.unify_width)
         for idx, annots in enumerate(self.annots_list):
             if idx == 0:
-                self.annots = annots
+                self.annots = deepcopy(annots)
             else:
                 for annot in annots:
                     self.annots.add(annot.label.id, annot.boundary.points, annot.label.name)
+
+
+class Crop(SITransform):
+    def __init__(self, x_min, y_min, x_max, y_max) -> None:
+        """
+        Crops an image into the specified boundary.
+        Args:
+            x_min (float): min value for x in percentage
+            y_min (float): min value for y in percentage
+            x_max (float): max value for x in percentage
+            y_max (float): max value for y in percentage
+        """
+        super().__init__()
+        # percentage x and y values
+        self.x_min = x_min
+        self.y_min = y_min
+        self.x_max = x_max
+        self.y_max = y_max
+
+        # validate crop box
+        assert self.x_min < self.x_max <= 1 and self.y_min < self.y_max <= 1
+
+        # absolute x and y values
+        self.x_min_abs = None
+        self.y_min_abs = None
+        self.x_max_abs = None
+        self.y_max_abs = None
+
+    def _apply_on_image(self):
+        image_width = self.annots.width
+        image_height = self.annots.height
+        self.x_min_abs = int(image_width * self.x_min)
+        self.y_min_abs = int(image_height * self.y_min)
+        self.x_max_abs = int(image_width * self.x_max)
+        self.y_max_abs = int(image_height * self.y_max)
+        self.image = self.image[self.x_min_abs:self.x_max_abs, self.y_min_abs:self.y_max_abs, :]
+
+    def _apply_on_annots(self):
+        self.annots.crop(self.x_min_abs, self.y_min_abs, self.x_max_abs, self.y_max_abs)
+
 
 #
 #
@@ -201,23 +242,12 @@ class Mosaic(MITransform):
 #     pass
 #
 #
-# def mosaic():
-#     pass
-#
-#
 # def overlay():
 #     pass
 #
 #
-# def crop():
-#     pass
-#
-#
-# def resize():
-#     pass
-#
-#
 # def cutout():
+#     cutout is essentialy the same as a dropout - therefore maybe not necessary
 #     pass
 #
 #
