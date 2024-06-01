@@ -155,6 +155,8 @@ class Mosaic(MITransform):
         self.unify_height = None
 
     def _preprocess(self):
+        assert len(self.image_list) == 4, (f"Mosaic Augmentation needs exactly 4 images to stitch together. "
+                                           f"Found {len(self.image_list)}")
         preprocessed_images, preprocessed_annots = [], []
         img_areas = [annots.border.area for annots in self.annots_list]
         self.unify_width, self.unify_height = self.annots_list[img_areas.index(min(img_areas))].border.corners[1]
@@ -235,6 +237,41 @@ class Crop(SITransform):
         self.annots.crop(self.x_min_abs, self.y_min_abs, self.x_max_abs, self.y_max_abs)
 
 
+class MixUp(MITransform):
+
+    """
+    Implemented from https://arxiv.org/abs/1710.09412v2
+    MixUp trains a neural network on convex combinations of pairs of examples and their labels.
+    """
+
+    def __init__(self, lam: float):
+        """
+        Args:
+            lam (float): lambda parameter or weight parameter, which sets image blending strength. Higher value leads to
+                         more appearance of first image in result. Must be in range 0.4 - 0.6.
+        """
+        super().__init__()
+        # lambda parameter
+        self.lam = lam
+
+        assert 0.4 <= self.lam <= 0.6, f"Lambda parameter for MixUp must be in range 0.4 - 0.6. Found {self.lam}."
+
+    def _preprocess(self) -> None:
+        assert len(self.image_list) == 2, (f"MixUp Augmentation needs exactly 2 images for blending. "
+                                           f"Found {len(self.image_list)}")
+
+    def _apply_on_images(self) -> None:
+        self.image = np.array(
+            self.image_list[0] * self.lam + self.image_list[1] * (1 - self.lam),
+            dtype=np.uint8
+        )
+
+    def _apply_on_annots(self) -> None:
+        self.annots = self.annots_list[0]
+        for annots in self.annots_list[1]:
+            self.annots.annots.append(annots)
+
+
 #
 #
 # def transform():
@@ -242,14 +279,7 @@ class Crop(SITransform):
 #     pass
 #
 #
-# def overlay():
-#     pass
-#
-#
 # def cutout():
 #     cutout is essentialy the same as a dropout - therefore maybe not necessary
 #     pass
 #
-#
-# def mixup():
-#     pass
