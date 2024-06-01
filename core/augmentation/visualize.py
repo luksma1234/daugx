@@ -1,16 +1,15 @@
-import cv2
-from .annotations import Annotations, Annotation
-from ..utils import is_in_dict
-import numpy as np
 from typing import Tuple, Union, Dict, Optional
+
+from .annotations import Annotations
+from daugx.utils import is_in_dict
+
+import cv2
+import numpy as np
+
 
 DEFAULT_COLOR = (0, 0, 255)
 IS_CLOSED = True
 BORDER_THICKNESS = 2
-
-# TODO: Boundary is invalid
-# TODO: Check if img_size is necessary in annotations
-# TODO: Research in Albumentations / augly how they managed annotations
 
 
 class Colors:

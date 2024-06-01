@@ -4,7 +4,7 @@ This module contains the Sequence class, which is a container for a list of elem
 
 from typing import List
 from .node import Node
-from ..core.filter import Filter
+from daugx.core.augmentation.filter import Filter
 from .sequence import Sequence
 
 

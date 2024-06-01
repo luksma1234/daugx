@@ -1,9 +1,8 @@
-from ..utils import *
+from daugx.utils import *
 from typing import List
-from ..core import augmentations
-from ..utils import is_executed
+from daugx.core.augmentation import augmentations
+from daugx.utils import is_executed
 import numpy as np
-from ..errors.logic_errors import *
 
 
 class Node:

@@ -1,7 +1,7 @@
 import warnings
 
-from ..utils import constants as c
-from ..utils.node_utils import is_output, is_dividing, is_inflationary, config_to_node
+from daugx.utils import constants as c
+from daugx.utils.node_utils import is_output, is_dividing, is_inflationary, config_to_node
 from .path import Path
 from .node import *
 from copy import deepcopy
@@ -307,7 +307,7 @@ class Plan:
 
     def _build_incomplete_paths(self) -> None:
         """
-        Builds up from paths. To prevent immediate returning from linear build-> Adds next sequence first before
+        Builds up from paths. To prevent immediate return from linear build-> Adds next sequence first before
         passing to _build_linear_path method.
         :return: None
         """

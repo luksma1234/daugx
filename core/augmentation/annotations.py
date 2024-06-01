@@ -2,7 +2,7 @@ from typing import List, Optional, Union
 
 import numpy as np
 
-from ..utils import new_id
+from daugx.utils import new_id
 
 from .boundaries import Boundary, BBoxBoundary, KeyPBoundary, PolyBoundary
 from.borders import ImageBorder

@@ -1,9 +1,9 @@
 from typing import List, Tuple, Optional
 from abc import ABC, abstractmethod
 
-import numpy as np
-
 from .annotations import Annotations
+
+import numpy as np
 
 
 class SITransform(ABC):
