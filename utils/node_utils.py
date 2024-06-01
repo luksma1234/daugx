@@ -1,4 +1,4 @@
-from ..logic.node import (
+from daugx.core.agent.node import (
     Node,
     InputNode,
     OutputNode,
