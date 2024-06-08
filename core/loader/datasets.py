@@ -6,6 +6,7 @@ from operator import itemgetter
 import xmltodict
 import yaml
 import pathlib
+# This is important, because some annotations are given as percentage values and have to be recalculated
 import imagesize
 
 

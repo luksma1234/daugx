@@ -12,13 +12,14 @@ BOUNDARY_TYPE_OBJS = [BBoxBoundary, KeyPBoundary, PolyBoundary]
 
 
 class Label:
-    def __init__(self, label_id: int, name: Optional[str] = None) -> None:
+    def __init__(self, label_id: Optional[int] = None, name: Optional[str] = None) -> None:
         """
         Defines a Label for any kind of data.
         Args:
             label_id (int): ID of label
             name (Optional - str): Name of label
         """
+        assert label_id is not None or name is not None, "Unable to create label without name and id."
         self.id = label_id
         self.name = name
 
@@ -26,10 +27,10 @@ class Label:
 class Annotation:
     def __init__(
             self,
-            label_id: int,
             boundary_points: np.ndarray,
             image_border: ImageBorder,
             boundary_type: str,
+            label_id: Optional[int] = None,
             label_name: Optional[str] = None
     ) -> None:
         """
@@ -108,13 +109,11 @@ class Annotation:
 
 
 class Annotations:
-    """
-    How does mosaic work?
-    -> set border to new size (double) for all 4 Annotations.
-    -> affine transform annots with translations
-    -> add all annots of all Annotations to first annotation
-    """
+
     def __init__(self, image_width: int, image_height: int, boundary_type: str) -> None:
+        """
+        Docstring missing...
+        """
         self.annots: List[Annotation] = []
         self.width = image_width
         self.height = image_height
@@ -171,7 +170,7 @@ class Annotations:
     def rebase_border(self):
         self.border.rebase()
 
-    def add(self, label_id: int, boundary_points: np.ndarray, label_name: Optional[str] = None) -> None:
+    def add(self, label_id: Optional[int], boundary_points: np.ndarray, label_name: Optional[str] = None) -> None:
         """
         Adds a new annotation.
         Args:
@@ -180,10 +179,10 @@ class Annotations:
             boundary_points (np.ndarray): numpy array of boundary points. Must be of shape (n, 2).
         """
         self.annots.append(Annotation(
-            label_id,
             boundary_points,
             self.border,
             self.boundary_type,
+            label_id,
             label_name
         ))
 

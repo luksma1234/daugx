@@ -7,6 +7,9 @@ import random
 from typing import List
 import json
 
+import numpy as np
+from cv2 import imread
+
 
 def is_in_dict(key: str, dict_: dict):
     try:
@@ -51,3 +54,23 @@ def load_json(file_path) -> dict:
     with open(file_path, "r") as f:
         json_dict = json.load(f)
     return json_dict
+
+
+def read_img(img_path: str) -> np.ndarray:
+    return np.einsum("ijk->jik", imread(img_path))
+
+
+def is_header(item_list: List[str]) -> bool:
+    """
+    Checks if a row is a header row.
+    Args:
+        item_list (List[str]): List of items in row to check
+    """
+    return not any([item.replace(".", "").isdigit() for item in item_list])
+
+
+def string_to_list(string: str) -> list:
+    """
+    Splits a string into a list. Takes a space as separator.
+    """
+    return string.split(" ")
