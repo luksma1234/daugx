@@ -23,6 +23,8 @@ class Label:
         self.id = label_id
         self.name = name
 
+# TODO: Implement additional Information to annotation. Additional information does not change during augmentations.
+
 
 class Annotation:
     def __init__(

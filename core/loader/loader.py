@@ -2,7 +2,7 @@ import os
 import json
 import csv
 
-from typing import Optional, Tuple, List, Union, Dict
+from typing import Tuple, List, Union, Dict
 from pathlib import Path
 
 from daugx.utils.misc import string_to_list, is_header
@@ -17,7 +17,7 @@ class Query:
     """
 
     ACCEPTED_KEYWORDS = ["XMIN", "XMAX", "YMIN", "YMAX", "WIDTH", "HEIGHT", "XCENTER", "YCENTER", "POLYGON", "KEYPOINT",
-                         "LABELNAME", "LABELID", "IMAGEID"]
+                         "LABELNAME", "LABELID", "IMAGEREF", "CUSTOM"]
 
     def __init__(self, mode: str, query_string: str):
         """
@@ -26,12 +26,15 @@ class Query:
             query_string (str): the query string in the format '<Keyword> <Loading Query> ...'
                                 Allowed Input Parameters are:
                                 XMIN, XMAX, YMIN, YMAX, WIDTH, HEIGHT, XCENTER, YCENTER, POLYGON, KEYPOINT,
-                                LABELNAME, LABELID, IMAGEREF
+                                LABELNAME, LABELID, IMAGEREF, CUSTOM
+
+                                The Parameter 'CUSTOM' makes an exception. Here multiple loading strings can be defined,
+                                which are then separated by a comma. An example would be:
+                                ... CUSTOM {annotations}[n]{is_grouped},{annotations}[n]{is_valid} ...
 
                                 The Loading Query is made up of...
                                 ... [] or {} to specify when to load from a list or a dictionary,
-                                ... [nx] to indicate the iteration of a list without a specified index - where x is a
-                                         number counting up from 0 and indicating which indices are counted equally
+                                ... [n] to indicate the iteration of a list without a specified index
                                 ... [1] to load the list entry at index 1
                                 ... /filename/ reads the name of the file
 
@@ -40,10 +43,6 @@ class Query:
                                 XMIN {annotations}[n]{bbox}[0] YMIN {annotations}[n]{bbox}[1] WIDTH
                                 {annotations}[n]{bbox}[2] HEIGHT {annotations}[n]{bbox}[3]'
         """
-        # TODO: Add CUSTOM as Input Parameter. Custom can handle multiple loading_strings separated by comma.
-        #  An example would be: ... CUSTOM {annotations}[n]{is_grouped},{annotations}[n]{is_valid}
-
-
 
         self.__mode = mode
         self.__query_string = query_string
@@ -57,6 +56,9 @@ class Query:
         self._validate()
         self._get_indexes()
 
+        assert len(self.keywords) == len(self.loading_queries), ("Found more keywords that loading queries in Query. "
+                                                                 "Please verify and try again.")
+
     @property
     def mode(self):
         return self.__mode
@@ -67,32 +69,38 @@ class Query:
 
     @property
     def loading_queries(self) -> List[str]:
-        return self.__loading_queries
+        return self._index_loading_queries()
 
     @property
     def indexes(self):
-        return self._index_loading_queries()
+        return self.__indexes
 
     def _get_indexes(self):
-        self.__indexes = [0] * max([loading_query.count("[n]") for loading_query in self.loading_queries])
+        self.__indexes = [0] * max([loading_query.count("[n]") for loading_query in self.__loading_queries])
 
     def _separate(self):
         """
         Separates query string into keywords and loading queries
         """
         query_list = string_to_list(self.__query_string)
-        for index, item in query_list:
+        for index, item in enumerate(query_list):
             if index % 2 == 0:
                 self.__keywords.append(item)
             else:
                 self.__loading_queries.append(item)
 
     def _validate(self):
-        assert len(self.keywords) == len(self.loading_queries), ("Found more keywords that loading queries in Query. "
-                                                                 "Please verify and try again.")
         for keyword in self.keywords:
             assert keyword in Query.ACCEPTED_KEYWORDS, f"Keyword '{keyword}' is unknown."
-
+        if "CUSTOM" in self.keywords:
+            custom_index = self.keywords.index("CUSTOM")
+            custom_query = self.__loading_queries[custom_index]
+            del self.keywords[custom_index]
+            del self.__loading_queries[custom_index]
+            custom_queries = custom_query.split(",")
+            for index, query in enumerate(custom_queries):
+                self.keywords.append(f"CUSTOM_{index}")
+                self.__loading_queries.append(query)
         # Check loading query for validity here
 
     def up_indexes(self, failed: bool):
@@ -148,7 +156,7 @@ class Query:
         self._get_indexes()
 
 
-class Loader:
+class AnnotationLoader:
     """
     The Loader loads the data from the disk using an input query.
 
@@ -181,7 +189,8 @@ class Loader:
             self,
             image_folder_path: str,
             annotation_path: str,
-            query: Query,
+            query: str,
+            annotation_mode: str,
             annotation_file_type: str,
             image_file_type: str
     ):
@@ -189,13 +198,14 @@ class Loader:
         Args:
             image_folder_path (str): Path to images folder
             annotation_path (str): Path to annotations file or folder
-            query (Query): Loading Query
+            query (str): Loading Query
+            annotation_mode: Load mode for annotations. Can be 'onefile' or 'folder'.
             annotation_file_type (str): File type for annotations. Accepted File types are: json, yaml, xml, txt, csv
             image_file_type (str): File type for images. Accepted file types are: jpg, png
         """
         self.image_folder_path = image_folder_path
         self.annotation_path = annotation_path
-        self.query = query
+        self.query = Query(query_string=query, mode=annotation_mode)
         self.annotation_file_type = annotation_file_type
         self.image_file_type = image_file_type
 
@@ -211,9 +221,11 @@ class Loader:
                 if path.endswith(self.annotation_file_type):
                     data.extend(self._load_from_query(path))
                     self.query.reset_indexes()
-            return data
         elif self.query.mode == "onefile":
-            return self._load_from_query(self.annotation_path)
+            data = self._load_from_query(self.annotation_path)
+        else:
+            raise NotImplementedError(f"Query mode '{self.query.mode}' is unknown.")
+        return data
 
     @staticmethod
     def _load_xml(file_path: str) -> Tuple[dict, str]:
@@ -308,9 +320,8 @@ class Loader:
             file_path (str): Path to file to load
         """
         file, file_name = self._load_file(file_path)
-        indexes = self.query.indexes
         load_list = []
-        while indexes is not None:
+        while self.query.indexes is not None:
             item_dict = {}
             try:
                 for keyword, loading_query in zip(self.query.keywords, self.query.loading_queries):
@@ -326,7 +337,8 @@ class Loader:
                         else:
                             parameter_end = feature_query.find("}")
                             feature = feature[str(feature_query[1:parameter_end])]
-
+                        feature_query = feature_query[parameter_end + 1:]
+                    item_dict[keyword] = feature
                 self.query.up_indexes(failed=False)
             except IndexError:
                 # index error occurs when index is out of bounds
