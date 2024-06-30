@@ -68,47 +68,42 @@ class DataPackage:
         pass
 
 
-class PackageHolder:
-
-    BBOX_PARAMETERS = {"XMIN", "YMIN", "XMAX", "YMAX", "WIDTH", "HEIGHT", "XCENTER", "YCENTER"}
-    KEYPOINT_PARAMETERS = {"KEYPOINT"}
-    POLYGON_PARAMETERS = {"POLYGON"}
-    MANDATORY_PARAMETERS = {"IMAGEREF"}
-    OPTIONAL_PARAMETERS = {"LABELNAME", "LABELID", "CUSTOM"}
+class PackageLoader:
 
     def __init__(self):
-        """
-        Holds the unchanged annotation data as read-only data packages.
-        """
-        self.packages: List[DataPackage] = []
-        self.boundary_type = None
-
-    def __getitem__(self, item):
-        """
-        Implement functionality so data can be fetched by its meta-information. This functionality is mandatory for
-        working filters.
-        Implement extraction modes e.g. 'single-use', 'multi-use'
-        """
         pass
+
+    # TODO: Make data hand-overs cleaner. Avoid loading data multiple times (like keys from the annot_dict).
 
     def load(
             self,
             image_folder_path: str,
             annotation_path: str,
             query: str,
-            annotation_type: str,
+            annotation_mode: str,
             annotation_file_type: str,
             image_file_type: str
-    ):
+    ) -> List[DataPackage]:
         """
         Loads raw annotations with AnnotationLoader. Preprocessed annotations to fit into DataPackage.
         Partially loads images for image size.
+        Args:
+            image_folder_path (str): Path to image folder
+            annotation_path (str): Path to annotation file (if mode is onefile)
+                                   or path to annotation directory (if mode is folder)
+            query (str): Loading query for annotations
+            annotation_mode (str): Load mode for annotations. Can be 'onefile' or 'folder'.
+            annotation_file_type (str): File extension of annotation file(s)
+            image_file_type (str): File extension of images
+        Returns:
+            (List[DataPackage]): List of all loaded data packages.
         """
+        package_list = []
         annotation_loader = AnnotationLoader(
             image_folder_path,
             annotation_path,
             query,
-            annotation_type,
+            annotation_mode,
             annotation_file_type,
             image_file_type
         )
@@ -117,11 +112,12 @@ class PackageHolder:
         for image_ref, raw_annotations in preprocessed_raw_annots.items():
             image_path = f"{image_folder_path}/{image_ref}.{image_file_type}"
             image_dims = shallow_load_img(image_path)
-            self.packages.append(DataPackage(image_path, image_dims, raw_annotations, annotation_type))
+            package_list.append(DataPackage(image_path, image_dims, raw_annotations, annotation_mode))
+        return package_list
 
     def _preprocess_raw_annots(self, raw_annotations: List[Dict[str, str]]):
-        raw_annot_sample = raw_annotations[0]
-        self.boundary_type = self._identify_boundary_type(raw_annot_sample)
+        raw_annot_keys = list(raw_annotations[0].keys())
+        self.boundary_type = self._identify_boundary_type(raw_annot_keys)
         refactored_raw_annots = self._refactor_raw_annots(raw_annotations)
         return self.group_raw_annots(refactored_raw_annots)
 
@@ -147,7 +143,28 @@ class PackageHolder:
             refactored_raw_annots.append(refactored_annot)
         return refactored_raw_annots
 
-    def group_raw_annots(self, raw_annots: List[dict]) -> Dict[str, List[dict]]:
+    @staticmethod
+    def _identify_boundary_type(raw_annot_keys: list) -> str:
+        """
+        Identifies boundary type by mathing present keys with the parameters for bbox, polygon and keypoints.
+        If any intersection is found, and the intersection is the only intersection, the boundary type is identified.
+        Args:
+            raw_annot_keys (dict): Keys from raw annotations
+        """
+        identified_boundary_types: List[str] = []
+        if len(list(set(raw_annot_keys).intersection(PackageHolder.BBOX_PARAMETERS))) > 0:
+            identified_boundary_types.append("bbox")
+        elif len(list(set(raw_annot_keys).intersection(PackageHolder.KEYPOINT_PARAMETERS))) > 0:
+            identified_boundary_types.append("keypoint")
+        elif len(list(set(raw_annot_keys).intersection(PackageHolder.POLYGON_PARAMETERS))) > 0:
+            identified_boundary_types.append("polygon")
+        assert len(identified_boundary_types) == 1, (f"Found ambiguous boundary types '{identified_boundary_types}'. "
+                                                     f"Only one boundary type is allowed for annotations. "
+                                                     f"Please adjust query and try again.")
+        return identified_boundary_types[0]
+
+    @staticmethod
+    def group_raw_annots(raw_annots: List[dict]) -> Dict[str, List[dict]]:
         """
         Groups raw annotations by their image reference.
         """
@@ -165,27 +182,107 @@ class PackageHolder:
             current_group.append(raw_annot)
         return grouped_raw_annots
 
-    @staticmethod
-    def _identify_boundary_type(raw_annot_sample) -> str:
-        identified_boundary_types: List[str] = []
-        parameters = list(raw_annot_sample.keys())
-        if len(list(set(parameters).intersection(PackageHolder.BBOX_PARAMETERS))) > 0:
-            identified_boundary_types.append("bbox")
-        elif len(list(set(parameters).intersection(PackageHolder.KEYPOINT_PARAMETERS))) > 0:
-            identified_boundary_types.append("keypoint")
-        elif len(list(set(parameters).intersection(PackageHolder.POLYGON_PARAMETERS))) > 0:
-            identified_boundary_types.append("polygon")
-        assert len(identified_boundary_types) == 1, (f"Found ambiguous boundary types '{identified_boundary_types}'. "
-                                                     f"Only one boundary type is allowed for annotations. "
-                                                     f"Please adjust query and try again.")
-        return identified_boundary_types[0]
+    def _extract_bbox(self, raw_annot: dict) -> np.ndarray:
+        """
+        Extracts all bounding box information from a raw annotation. Turns bbox into xyxy format.
+        Args:
+            raw_annot (dict): Raw annotation from loader
+        """
+        # 1. Check if necessary information to build bbox is present
 
-    def _extract_bbox(self):
-        pass
+        # 2. Load bbox
+
+        # 3. Format bbox
 
     def _extract_polys(self):
         pass
 
     def _extract_keypoint(self):
         pass
+
+    @staticmethod
+    def _extract_bbox_keys(raw_annot: dict) -> List[str]:
+        """
+        Extracts all bounding box keys from a raw annot dictionary.
+        Args:
+            raw_annot (dict): Raw annotation from Loader
+        Returns:
+            (List[str]): List of all bbox keys
+        """
+        return list(set(raw_annot.keys()).intersection(PackageHolder.BBOX_PARAMETERS))
+
+    def _is_raw_bbox(self, raw_annot: dict) -> bool:
+        """
+        Check if necessary information to build bbox is present
+        BBOX_PARAMETERS = {"XMIN", "YMIN", "XMAX", "YMAX", "WIDTH", "HEIGHT", "XCENTER", "YCENTER"}
+        """
+        # TODO: Is this check even needed?
+        n_pairs = 0
+        raw_annot_keys = list(raw_annot.keys())
+        if "XMIN" in raw_annot_keys and "XMAX" in raw_annot_keys:
+            n_pairs += 1
+
+
+class PackageHolder:
+
+    BBOX_PARAMETERS = {"XMIN", "YMIN", "XMAX", "YMAX", "WIDTH", "HEIGHT", "XCENTER", "YCENTER"}
+    KEYPOINT_PARAMETERS = {"KEYPOINT"}
+    POLYGON_PARAMETERS = {"POLYGON"}
+    MANDATORY_PARAMETERS = {"IMAGEREF"}
+    OPTIONAL_PARAMETERS = {"LABELNAME", "LABELID", "CUSTOM"}
+
+    def __init__(self):
+        """
+        Holds the unchanged annotation data as read-only data packages.
+        """
+        self.loader = PackageLoader()
+        self.packages: List[DataPackage] = []
+        self.boundary_type = None
+
+    def __getitem__(self, item):
+        """
+        Implement functionality so data can be fetched by its meta-information. This functionality is mandatory for
+        working filters.
+        Implement extraction modes e.g. 'single-use', 'multi-use'
+        """
+        pass
+
+    def load(self):
+        """
+        Passes values to loader.load(...) ... maybe something can be changed here to make value passing a bit cleaner
+        """
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
