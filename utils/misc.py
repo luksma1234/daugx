@@ -4,11 +4,12 @@ Collection of unreferrable functions.
 
 import uuid
 import random
-from typing import List
+from typing import List, Tuple
 import json
 
 import numpy as np
 from cv2 import imread
+import imagesize
 
 
 def is_in_dict(key: str, dict_: dict):
@@ -74,3 +75,54 @@ def string_to_list(string: str) -> list:
     Splits a string into a list. Takes a space as separator.
     """
     return string.split(" ")
+
+
+def shallow_load_img(path: str) -> Tuple[int, int]:
+    """
+    Shallow Loads an image. Returns image width and height.
+    Args:
+        path (str): Path to image as string
+    Returns:
+        (Tuple[int, int]): image width, image height
+    """
+    return imagesize.get(path)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

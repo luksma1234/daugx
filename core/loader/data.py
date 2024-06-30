@@ -3,7 +3,7 @@ from operator import itemgetter
 from typing import Tuple, List, Dict
 
 from daugx.core.augmentation.annotations import Annotations, Label
-from daugx.utils.misc import read_img
+from daugx.utils.misc import read_img, shallow_load_img
 from daugx.core.loader.loader import AnnotationLoader
 
 import numpy as np
@@ -64,6 +64,7 @@ class DataPackage:
             self.__annotations.add(**raw_annotation)
 
     def _retrieve_meta_inf(self) -> dict:
+        # TODO: Implement Meta Data
         pass
 
 
@@ -114,10 +115,8 @@ class PackageHolder:
         raw_annotations = annotation_loader.load()
         preprocessed_raw_annots = self._preprocess_raw_annots(raw_annotations)
         for image_ref, raw_annotations in preprocessed_raw_annots.items():
-            # TODO:
-            # extracts image dimensions from image path
             image_path = f"{image_folder_path}/{image_ref}.{image_file_type}"
-            image_dims = self.get_image_dims(image_path)
+            image_dims = shallow_load_img(image_path)
             self.packages.append(DataPackage(image_path, image_dims, raw_annotations, annotation_type))
 
     def _preprocess_raw_annots(self, raw_annotations: List[Dict[str, str]]):
