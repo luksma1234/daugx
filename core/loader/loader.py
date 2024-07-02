@@ -4,11 +4,19 @@ import csv
 
 from typing import Tuple, List, Union, Dict
 from pathlib import Path
+from operator import itemgetter
 
 from daugx.utils.misc import string_to_list, is_header
+from daugx.core.loader.data import DataPackage
+import daugx.core.constants as c
+from daugx.utils.misc import img_dims, list_intersection
+from daugx.core.augmentation.annotations import Annotations
 
 import xmltodict
 import yaml
+import numpy as np
+
+# TODO: Make Loader load DataPackages directly
 
 
 class Query:
@@ -16,13 +24,10 @@ class Query:
     A Query defines how exactly the data should be loaded. A query will be passed to the Loader.
     """
 
-    ACCEPTED_KEYWORDS = ["XMIN", "XMAX", "YMIN", "YMAX", "WIDTH", "HEIGHT", "XCENTER", "YCENTER", "POLYGON", "KEYPOINT",
-                         "LABELNAME", "LABELID", "IMAGEREF", "CUSTOM"]
-
     def __init__(self, mode: str, query_string: str):
         """
         Args:
-            mode (str): one of 'folder' or 'onefile' - specifies the base structure of the data
+            mode (str): one of 'directory' or 'onefile' - specifies the base structure of the data
             query_string (str): the query string in the format '<Keyword> <Loading Query> ...'
                                 Allowed Input Parameters are:
                                 XMIN, XMAX, YMIN, YMAX, WIDTH, HEIGHT, XCENTER, YCENTER, POLYGON, KEYPOINT,
@@ -76,11 +81,13 @@ class Query:
         return self.__indexes
 
     def _get_indexes(self):
-        self.__indexes = [0] * max([loading_query.count("[n]") for loading_query in self.__loading_queries])
+        self.__indexes = [0] * max(
+            [loading_query.count(c.QUERY_UNDEFINED_ITERATOR) for loading_query in self.__loading_queries]
+        )
 
     def _separate(self):
         """
-        Separates query string into keywords and loading queries
+        Separates query string into keywords and loading queries.
         """
         query_list = string_to_list(self.__query_string)
         for index, item in enumerate(query_list):
@@ -90,25 +97,45 @@ class Query:
                 self.__loading_queries.append(item)
 
     def _validate(self):
+        """
+        Validates all found keywords of query string.
+        Raises:
+            AssertionError: If keyword is not part of the QUERY_KEYWORDS_LIST.
+        """
         for keyword in self.keywords:
-            assert keyword in Query.ACCEPTED_KEYWORDS, f"Keyword '{keyword}' is unknown."
-        if "CUSTOM" in self.keywords:
-            custom_index = self.keywords.index("CUSTOM")
+            assert keyword in c.QUERY_KEYWORDS_LIST, f"Keyword '{keyword}' is unknown."
+
+        # Check loading query for validity here
+
+    def _handle_custom(self):
+        """
+        Handles all custom queries. Separates custom queries and lists them with their query index.
+        e.g.: CUSTOM {example}[n][1],{example}[n][2]
+        -> {
+            ...,
+            CUSTOM_0: "{example}[n][1]",
+            CUSTOM_1: "{example}[n][2]"
+           }
+        """
+        if c.QUERY_CUSTOM in self.keywords:
+            custom_index = self.keywords.index(c.QUERY_CUSTOM)
             custom_query = self.__loading_queries[custom_index]
             del self.keywords[custom_index]
             del self.__loading_queries[custom_index]
+            # If multiple queries are listed as custom, the queries must be separated by a ','
+            # Keep in min that spaces are used to separate query keywords and the query-blocks.
+            # Therefore, a do not use a ', ' as separator.
             custom_queries = custom_query.split(",")
             for index, query in enumerate(custom_queries):
-                self.keywords.append(f"CUSTOM_{index}")
+                self.keywords.append(f"{c.QUERY_CUSTOM}_{index}")
                 self.__loading_queries.append(query)
-        # Check loading query for validity here
 
     def up_indexes(self, failed: bool):
         """
-        Indexes of queries are initialized with 0. The indexes are iterated from the last index in the list upwards.
+        Indexes of queries are initialized as 0. The indexes are iterated from the last index in the list upwards.
         An index is counted upwards as long as no IndexError with the current indexes occurs. An occurrence of an
-        IndexError is handed over to this method with the 'failed' flag.
-        If failed is set to true, the fail counter of this class is increased by one.The index of indexes at index
+        IndexError is handed over to this method using the 'failed' flag.
+        If failed is set to true, the fail counter of this class is increased by one. The index of indexes at index
         self.fail_counter + 1 is then increased by one. Sets indexes to None if fail_counter exceeds length of indexes.
         Args:
             failed (bool): Flag to indicate weather an Index error occurred with current indexes.
@@ -140,8 +167,8 @@ class Query:
         partial_query = loading_query
         insert_index = 0
         n = 0
-        while partial_query.count("[n]") > 0:
-            find_index = partial_query.find("[n]")
+        while partial_query.count(c.QUERY_UNDEFINED_ITERATOR) > 0:
+            find_index = partial_query.find(c.QUERY_UNDEFINED_ITERATOR)
             insert_index += find_index + 1
             partial_query = partial_query[find_index + 3:]
             loading_query = loading_query[:insert_index] + str(self.__indexes[n]) + loading_query[insert_index + 1:]
@@ -156,13 +183,13 @@ class Query:
         self._get_indexes()
 
 
-class AnnotationLoader:
+class InitialLoader:
     """
     The Loader loads the data from the disk using an input query.
 
     How is typical annotation data structured?
     There are two main differences:
-    1. Annotations can come in the form of a folder with files, where each file includes annotations
+    1. Annotations can come in the form of a directory with files, where each file includes annotations
        for one image.
     2. Annotations can also be one single file, where all annotations for all images are stored.
 
@@ -173,56 +200,74 @@ class AnnotationLoader:
     1. Iterate over a list of unknown size - without providing any index
     2. Get an item from a list by a specified index
     3. Get an item from a dictionary by a specified key
-    4. Differentiate between annotations in folders and one-file annotations
+    4. Differentiate between annotations in directories and one-file annotations
     5. Read the filename of a file
     5. Load data using these functionalities from all common annotation datatypes. (json, yaml, xml, txt, csv)
 
     How should data be loaded?
     - For each part of an annotation (category/label_name, label_id, x_min, x_max...)
       one query has to be created.
-    - The user must specify the loading_mode [one-file, folder] - if the annotations are spread between files or are one-file
-    - The user also has to provide the path to the folder/one-file
-    - If loading_mode is folder - User must specify, what's the actual file type.
+    - The user must specify the loading_mode [one-file, directory] - if the annotations are spread between files or are one-file
+    - The user also has to provide the path to the directory/one-file
+    - If loading_mode is directory - User must specify, what's the actual file type.
 
     """
     def __init__(
             self,
-            image_folder_path: str,
-            annotation_path: str,
+            img_dir_path: str,
+            annot_path: str,
             query: str,
-            annotation_mode: str,
-            annotation_file_type: str,
-            image_file_type: str
+            annot_mode: str,
+            annot_file_type: str,
+            img_file_type: str
     ):
         """
         Args:
-            image_folder_path (str): Path to images folder
-            annotation_path (str): Path to annotations file or folder
+            img_dir_path (str): Path to images directory
+            annot_path (str): Path to annotations file or directory
             query (str): Loading Query
-            annotation_mode: Load mode for annotations. Can be 'onefile' or 'folder'.
-            annotation_file_type (str): File type for annotations. Accepted File types are: json, yaml, xml, txt, csv
-            image_file_type (str): File type for images. Accepted file types are: jpg, png
+            annot_mode: Load mode for annotations. Can be 'onefile' or 'directory'.
+            annot_file_type (str): File type for annotations. Accepted File types are: json, yaml, xml, txt, csv
+            img_file_type (str): File type for images. Accepted file types are: jpg, png
         """
-        self.image_folder_path = image_folder_path
-        self.annotation_path = annotation_path
-        self.query = Query(query_string=query, mode=annotation_mode)
-        self.annotation_file_type = annotation_file_type
-        self.image_file_type = image_file_type
+        self.img_dir_path = img_dir_path
+        self.annot_path = annot_path
+        self.annot_mode = annot_mode
+        self.query = Query(query_string=query, mode=self.annot_mode)
+        self.annot_file_type = annot_file_type
+        self.img_file_type = img_file_type
+        self.boundary_type = self._identify_boundary_type()
+        if self.boundary_type == c.BOUNDARY_TYPE_BBOX:
+            self.bbox_keywords = self._extract_bbox_keywords()
+            self.bbox_strategy = self._get_bbox_strategy(self.bbox_keywords)
 
-    def load(self) -> List[Dict[str, str]]:
+    def load(self) -> List[DataPackage]:
         """
-        High level load method. Loads all annotation data from annotations file path.
+        Loads all annotations defines in query.
+        Returns:
+            (List[DataPackage]): All Annotations of all image references.
+        """
+        raw_annots = self._load_raw_annots()
+        return self._raw_to_packages(raw_annots)
+
+    def _load_raw_annots(self) -> List[Dict[str, str]]:
+        """
+        High level load method for annotations. Loads all annotation data from annotations file path.
         Returns:
              (List[Dict[str, str]]): List of all data retrieved by query
+             dict schema: {
+                             <query_key>: <data (str)>,
+                             ...
+                          }
         """
-        if self.query.mode == "folder":
+        if self.query.mode == c.QUERY_MODE_DIRECTORY:
             data = []
-            for path in os.listdir(self.annotation_path):
-                if path.endswith(self.annotation_file_type):
+            for path in os.listdir(self.annot_path):
+                if path.endswith(self.annot_file_type):
                     data.extend(self._load_from_query(path))
                     self.query.reset_indexes()
-        elif self.query.mode == "onefile":
-            data = self._load_from_query(self.annotation_path)
+        elif self.query.mode == c.QUERY_MODE_ONE_FILE:
+            data = self._load_from_query(self.annot_path)
         else:
             raise NotImplementedError(f"Query mode '{self.query.mode}' is unknown.")
         return data
@@ -313,11 +358,17 @@ class AnnotationLoader:
                 content_list.append(line)
         return content_list, path.stem
 
-    def _load_from_query(self, file_path: str):
+    def _load_from_query(self, file_path: str) -> List[Dict[str, str]]:
         """
         Loads data on given file path from query.
         Args:
             file_path (str): Path to file to load
+        Returns:
+            (List[Dict[str, str]): List of all annotations on given file path.
+            dict schema: {
+                             <query_key>: <data (str)>,
+                             ...
+                         }
         """
         file, file_name = self._load_file(file_path)
         load_list = []
@@ -325,7 +376,7 @@ class AnnotationLoader:
             item_dict = {}
             try:
                 for keyword, loading_query in zip(self.query.keywords, self.query.loading_queries):
-                    if loading_query == "/filename/":
+                    if loading_query == c.QUERY_CURRENT_FILE_NAME:
                         item_dict[keyword] = file_name
                         continue
                     feature = file
@@ -347,7 +398,7 @@ class AnnotationLoader:
         return load_list
 
     def _load_file(self, file_path: str) -> Tuple[Union[list, dict], str]:
-        match self.annotation_file_type:
+        match self.annot_file_type:
             case "csv":
                 return self._load_csv(file_path)
             case "json":
@@ -358,3 +409,243 @@ class AnnotationLoader:
                 return self._load_xml(file_path)
             case "yaml":
                 return self._load_yaml(file_path)
+
+    def _raw_to_packages(self, raw_annots: List[Dict[str, str]]) -> List[DataPackage]:
+        """
+        Transforms raw loaded annotations into a list of data packages.
+        Args:
+            raw_annots (List[Dict[str, str]]): Raw loaded annotations
+        Returns:
+            (List[DataPackage])
+        """
+        package_list: List[DataPackage] = []
+        annot_kwargs = self._refactor_raw_annots(raw_annots)
+        grouped_annot_kwargs = self._group_by_img_ref(annot_kwargs)
+        for image_ref, annot_kwargs in grouped_annot_kwargs.items():
+            image_path = f"{self.img_dir_path}/{image_ref}.{self.img_file_type}"
+            image_dims = img_dims(image_path)
+            annotations = Annotations(*image_dims)
+            package_list.append(DataPackage(image_path, annotations))
+        return package_list
+
+    def _grouped_annot_kwargs_to_annotations(self, annot_kwargs_list: list, image_dims: Tuple[int, int]) -> Annotations:
+        """
+        Initializes all annotations from a grouped annot kwarg list.
+        Args:
+            annot_kwargs_list (dict): List of annot kwargs. Contains all annotation kwargs of one image reference.
+            image_dims (Tuple[int, int]): width and height of referenced image
+        Returns:
+            (Annotations): Annotations of image reference
+        """
+        # Don't know if that's working... maybe content of image_dims cant be unpacked like that
+        annotations = Annotations(*image_dims, self.boundary_type)
+        for single_annot_kwargs in annot_kwargs_list:
+            annotations.add(**single_annot_kwargs)
+        return annotations
+
+    def _refactor_raw_annots(self, raw_annots: List[Dict[str, str]]) -> List[dict]:
+        """
+        Refactors list of raw annotation dictionaries to fit the kwargs of the Annotation class.
+        Args:
+            raw_annots (List[Dict[str, str]]): Raw loaded annotations
+        Returns:
+            (List[dict]): List of dictionaries, which can be fed as kwargs to the Annotation class
+        Raises:
+            ValueError: If image reference could not be found in the loading Query
+            AssertionError: If none of annotation id or name was found in the loading Query
+        """
+        annot_kwargs: List[dict] = []
+        for raw_annot in raw_annots:
+            refactored_annot = {c.DICTIONARY_KEY_BOUNDARY_POINTS: self._extract_boundary(raw_annot)}
+            if c.QUERY_LABEL_ID in raw_annot.keys():
+                refactored_annot[c.DICTIONARY_KEY_LABEL_ID] = raw_annot[c.QUERY_LABEL_ID]
+            if c.QUERY_LABEL_NAME in raw_annot.keys():
+                refactored_annot[c.DICTIONARY_KEY_LABEL_NAME] = raw_annot[c.QUERY_LABEL_NAME]
+            if c.QUERY_IMAGE_REF in raw_annot.keys():
+                refactored_annot[c.DICTIONARY_KEY_IMAGE_REF] = raw_annot[c.QUERY_IMAGE_REF]
+            else:
+                raise ValueError("Unable to find image reference for annotations. Please adapt query and restart.")
+            assert c.DICTIONARY_KEY_LABEL_ID in refactored_annot or c.DICTIONARY_KEY_LABEL_NAME in refactored_annot, \
+                (f"Annotations must either have an id or a name. Please adapt your loading query and add "
+                 f"{c.QUERY_LABEL_ID} or {c.QUERY_LABEL_NAME}.")
+            annot_kwargs.append(refactored_annot)
+        return annot_kwargs
+
+    def _extract_boundary(self, raw_annot: Dict[str, str]) -> np.ndarray:
+        """
+        Extracts a boundary according to the boundary type from a raw annotation.
+        Args:
+            raw_annot ([Dict[str, str]]): Single raw annotation
+        Returns:
+            (np.ndarray): Boundary of raw annotation
+        """
+        match self.boundary_type:
+            case c.BOUNDARY_TYPE_BBOX:
+                return self._extract_bbox(raw_annot)
+            case c.BOUNDARY_TYPE_KEYPOINT:
+                return self._extract_keypoint(raw_annot)
+            case c.BOUNDARY_TYPE_POLYGON:
+                return self._extract_polys(raw_annot)
+
+    def _identify_boundary_type(self) -> str:
+        """
+        Identifies the type of boundary inside the query. Does not check for ambiguities in boundary types.
+        Matches the first boundary type identified in query.
+        Returns:
+            (str): Boundary type of annotations loaded by query
+        Raises:
+            ValueError: If no boundary type could be matched
+        """
+        if len(list_intersection(self.query.keywords, c.QUERY_BBOX_KEYWORDS_LIST)) > 0:
+            return c.BOUNDARY_TYPE_BBOX
+        if len(list_intersection(self.query.keywords, c.QUERY_KEYPOINT_KEYWORDS_LIST)) > 0:
+            return c.BOUNDARY_TYPE_KEYPOINT
+        if len(list_intersection(self.query.keywords, c.QUERY_POLYGON_KEYWORDS_LIST)) > 0:
+            return c.BOUNDARY_TYPE_POLYGON
+        raise ValueError("Unable to match any boundary type. Please verify your query and try again.")
+
+    @staticmethod
+    def _group_by_img_ref(raw_annots: List[dict]) -> Dict[str, List[dict]]:
+        """
+        Groups raw annotations by their image reference.
+        Args:
+            raw_annots (List[dict]): Raw annotations list
+        Returns:
+            (Dict[str, List[dict]]): Dict with image references as keys and lists of raw annotations as items
+        """
+        sorted_raw_annots = sorted(raw_annots, key=itemgetter(c.DICTIONARY_KEY_IMAGE_REF))
+        grouped_raw_annots = {}
+        current_image_ref = sorted_raw_annots[0][c.DICTIONARY_KEY_IMAGE_REF]
+        current_group = []
+        for raw_annot in sorted_raw_annots:
+            if raw_annot[c.DICTIONARY_KEY_IMAGE_REF] != current_image_ref:
+                grouped_raw_annots[current_image_ref] = current_group
+                current_image_ref = raw_annot[c.DICTIONARY_KEY_IMAGE_REF]
+                current_group = [raw_annot]
+                continue
+            del raw_annot[c.DICTIONARY_KEY_IMAGE_REF]
+            current_group.append(raw_annot)
+        return grouped_raw_annots
+
+    def _extract_bbox(self, raw_annot: dict) -> np.ndarray:
+        """
+        Extracts all bounding box information from a raw annotation. Turns bbox into xyxy format.
+        Args:
+            raw_annot (dict): Raw annotation from loader
+        Returns:
+            (np.ndarray): Numpy array of bounding box in xyxy format
+        """
+        match self.bbox_strategy:
+
+            case [c.KEYWORD_PAIR_XY_MIN, c.KEYWORD_PAIR_XY_MAX] | [c.KEYWORD_PAIR_XY_MAX, c.KEYWORD_PAIR_XY_MIN]:
+                return np.array([
+                    raw_annot[c.QUERY_X_MIN],
+                    raw_annot[c.QUERY_Y_MIN],
+                    raw_annot[c.QUERY_X_MAX],
+                    raw_annot[c.QUERY_Y_MAX],
+                ], np.float32)
+
+            case [c.KEYWORD_PAIR_XY_MIN, c.KEYWORD_PAIR_WH] | [c.KEYWORD_PAIR_WH, c.KEYWORD_PAIR_XY_MIN]:
+                return np.array([
+                    raw_annot[c.QUERY_X_MIN],
+                    raw_annot[c.QUERY_Y_MIN],
+                    float(raw_annot[c.QUERY_X_MIN]) + float(raw_annot[c.QUERY_WIDTH]),
+                    float(raw_annot[c.QUERY_Y_MIN]) + float(raw_annot[c.QUERY_HEIGHT]),
+                ], np.float32)
+
+            case [c.KEYWORD_PAIR_XY_MIN, c.KEYWORD_PAIR_CENTER] | [c.KEYWORD_PAIR_CENTER, c. KEYWORD_PAIR_XY_MIN]:
+                return np.array([
+                    raw_annot[c.QUERY_X_MIN],
+                    raw_annot[c.QUERY_Y_MIN],
+                    float(raw_annot[c.QUERY_X_MIN]) +
+                    (float(raw_annot[c.QUERY_X_CENTER]) - float(raw_annot[c.QUERY_X_MIN])) * 2,
+                    float(raw_annot[c.QUERY_Y_MIN]) +
+                    (float(raw_annot[c.QUERY_Y_CENTER]) - float(raw_annot[c.QUERY_Y_MIN])) * 2,
+                ], np.float32)
+
+            case [c.KEYWORD_PAIR_WH, c.KEYWORD_PAIR_CENTER] | [c.KEYWORD_PAIR_CENTER, c.KEYWORD_PAIR_WH]:
+                return np.array([
+                    float(raw_annot[c.QUERY_X_CENTER]) - (float(raw_annot[c.QUERY_WIDTH]) / 2),
+                    float(raw_annot[c.QUERY_Y_CENTER]) - (float(raw_annot[c.QUERY_HEIGHT]) / 2),
+                    float(raw_annot[c.QUERY_X_CENTER]) + (float(raw_annot[c.QUERY_WIDTH]) / 2),
+                    float(raw_annot[c.QUERY_Y_CENTER]) + (float(raw_annot[c.QUERY_HEIGHT]) / 2),
+                ], np.float32)
+
+            case [c.KEYWORD_PAIR_WH, c.KEYWORD_PAIR_XY_MAX] | [c.KEYWORD_PAIR_XY_MAX, c.KEYWORD_PAIR_WH]:
+                return np.array([
+                    float(raw_annot[c.QUERY_X_MAX]) - float(raw_annot[c.QUERY_WIDTH]),
+                    float(raw_annot[c.QUERY_Y_MAX]) - float(raw_annot[c.QUERY_HEIGHT]),
+                    raw_annot[c.QUERY_X_MAX],
+                    raw_annot[c.QUERY_Y_MAX]
+                ], np.float32)
+
+            case [c.KEYWORD_PAIR_XY_MAX, c.KEYWORD_PAIR_CENTER] | [c.KEYWORD_PAIR_CENTER, c. KEYWORD_PAIR_XY_MAX]:
+                return np.array([
+                    float(raw_annot[c.QUERY_X_MAX]) -
+                    (float(raw_annot[c.QUERY_X_MAX]) - float(raw_annot[c.QUERY_X_CENTER])) * 2,
+                    float(raw_annot[c.QUERY_Y_MAX]) -
+                    (float(raw_annot[c.QUERY_Y_MAX]) - float(raw_annot[c.QUERY_Y_CENTER])) * 2,
+                    raw_annot[c.QUERY_X_MAX],
+                    raw_annot[c.QUERY_Y_MAX],
+                ], np.float32)
+
+    def _extract_bbox_keywords(self) -> List[str]:
+        """
+        Extracts all bounding box keys from the query
+        Returns:
+            (List[str]): List of all bbox keys
+        """
+        return list_intersection(self.query.keywords, c.QUERY_BBOX_KEYWORDS_LIST)
+
+    @staticmethod
+    def _get_bbox_strategy(bbox_keywords: List[str]) -> List[str]:
+        """
+        Gets bbox strategy by checking keywords. Strategy is later used to transform any type of bbox into a xyxy bbox.
+        Returns:
+            (List[str]): List of found keyword pairs. Results in a strategy.
+        """
+        bbox_strategy = []
+        if c.QUERY_X_MIN in bbox_keywords and c.QUERY_Y_MIN in bbox_keywords:
+            bbox_strategy.append(c.KEYWORD_PAIR_XY_MIN)
+        if c.QUERY_WIDTH in bbox_keywords and c.QUERY_HEIGHT in bbox_keywords:
+            bbox_strategy.append(c.KEYWORD_PAIR_WH)
+        if c.QUERY_X_CENTER in bbox_keywords and c.QUERY_Y_CENTER in bbox_keywords:
+            bbox_strategy.append(c.KEYWORD_PAIR_CENTER)
+        if c.QUERY_X_MAX in bbox_keywords and c.QUERY_Y_MAX in bbox_keywords:
+            bbox_strategy.append(c.KEYWORD_PAIR_XY_MAX)
+        assert len(bbox_strategy) >= 2, \
+            (f"Insufficient bbox keyword pairs found in query. Needs two pairs, found {len(bbox_strategy)}. Adapt "
+             f"loading query by adding or complete any unused or incomplete keyword pair with its loading instructions "
+             f"of '{c.QUERY_X_MIN},{c.QUERY_Y_MIN}', '{c.QUERY_X_MAX}, {c.QUERY_Y_MAX}', '{c.QUERY_X_CENTER}, "
+             f"{c.QUERY_Y_CENTER}' or '{c.QUERY_WIDTH}, {c.QUERY_HEIGHT}'")
+        return bbox_strategy[:2]
+
+    def _extract_polys(self, raw_annot: dict) -> np.ndarray:
+        """
+        Extracts all polygon information from a raw annotation. Assumes that polygon is a string with can start and end
+        with brackets and items are separated by comma.
+        Args:
+            raw_annot (dict): Raw annotation from loader
+        Returns:
+            (np.ndarray): Numpy array of polygon
+        """
+        # TODO: This is much more complicated due to poly separation by space or polys stored as array...
+        poly_string = raw_annot[c.QUERY_POLYGON]
+        # remove spaces
+        poly_string = poly_string.replace(" ", "")
+        # remove list brackets
+        poly_string = poly_string.replace("[", "")
+        poly_string = poly_string.replace("]", "")
+        # return split string by comma
+        return np.array(poly_string.split(","), np.float32)
+
+    def _extract_keypoint(self, raw_annot: dict) -> np.ndarray:
+        """
+        Extracts a keypoint from a raw annotation.
+        Args:
+            raw_annot (dict): Raw annotation from loader
+        Returns:
+            (np.ndarray): Numpy array of keypoint
+        """
+        return np.array(raw_annot[c.QUERY_KEYPOINT], np.)
+

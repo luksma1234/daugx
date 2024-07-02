@@ -77,15 +77,27 @@ def string_to_list(string: str) -> list:
     return string.split(" ")
 
 
-def shallow_load_img(path: str) -> Tuple[int, int]:
+def img_dims(path: str) -> Tuple[int, int]:
     """
-    Shallow Loads an image. Returns image width and height.
+   Gets image width and height.
     Args:
         path (str): Path to image as string
     Returns:
         (Tuple[int, int]): image width, image height
     """
     return imagesize.get(path)
+
+
+def list_intersection(a: list, b: list) -> list:
+    """
+    Returns a List with all elements that are equal in list a and list b.
+    Args:
+        a (list): List a
+        b (list): List b
+    Returns:
+        (list): Intersection list of a and b
+    """
+    return list(set(a).intersection(set(b)))
 
 
 

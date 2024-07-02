@@ -1,41 +1,25 @@
 from copy import deepcopy
 from operator import itemgetter
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Union
 
 from daugx.core.augmentation.annotations import Annotations, Label
-from daugx.utils.misc import read_img, shallow_load_img
-from daugx.core.loader.loader import AnnotationLoader
+from daugx.utils.misc import read_img
 
 import numpy as np
 
 
 class DataPackage:
 
-    def __init__(self, image_path: str, image_dims: Tuple[int, int], raw_annotations: List[dict], annotation_type: str):
+    def __init__(self, image_path: str, annotations: Annotations):
         """
         A high level wrapper to wrap annotations and image data. Remains read-only after initialization. Saves image
         and annotation meta information in initialization.
         Args:
             image_path (str): Absolute path to image
-            image_dims (Tuple[int, int]): Image dimensions, ignoring channels
-            raw_annotations (List[dict]): Raw annotation data from Loader. Data format:
-
-              [
-                {
-                    label_name: (str)
-                    label_id: (int)
-                    boundary: (np.ndarray)
-                },
-                ...
-              ]
+            annotations (Annotations): Annotations of one image reference
         """
         self.__image_path = image_path
-        self.__image_dims = image_dims
-        self.__raw_annotations = raw_annotations
-        self.__annotation_type = annotation_type
-        self.__annotations = None
-
-        self._annotations_from_dict()
+        self.__annotations = annotations
 
     @property
     def meta_inf(self) -> dict:
@@ -55,20 +39,18 @@ class DataPackage:
     def _load_image(self):
         return read_img(self.__image_path)
 
-    def _annotations_from_dict(self) -> None:
-        """
-        Initializes all annotations from dictionary.
-        """
-        self.__annotations = Annotations(*self.__image_dims, self.__annotation_type)
-        for raw_annotation in self.__raw_annotations:
-            self.__annotations.add(**raw_annotation)
-
     def _retrieve_meta_inf(self) -> dict:
         # TODO: Implement Meta Data
         pass
 
 
 class PackageLoader:
+
+    BBOX_PARAMETERS = {"XMIN", "YMIN", "XMAX", "YMAX", "WIDTH", "HEIGHT", "XCENTER", "YCENTER"}
+    KEYPOINT_PARAMETERS = {"KEYPOINT"}
+    POLYGON_PARAMETERS = {"POLYGON"}
+    MANDATORY_PARAMETERS = {"IMAGEREF"}
+    OPTIONAL_PARAMETERS = {"LABELNAME", "LABELID", "CUSTOM"}
 
     def __init__(self):
         pass
@@ -225,11 +207,6 @@ class PackageLoader:
 
 class PackageHolder:
 
-    BBOX_PARAMETERS = {"XMIN", "YMIN", "XMAX", "YMAX", "WIDTH", "HEIGHT", "XCENTER", "YCENTER"}
-    KEYPOINT_PARAMETERS = {"KEYPOINT"}
-    POLYGON_PARAMETERS = {"POLYGON"}
-    MANDATORY_PARAMETERS = {"IMAGEREF"}
-    OPTIONAL_PARAMETERS = {"LABELNAME", "LABELID", "CUSTOM"}
 
     def __init__(self):
         """
@@ -253,13 +230,78 @@ class PackageHolder:
         """
 
 
+class RawPackage:
+    def __init__(
+            self,
+            img_dir_path: str,
+            annot_path: str,
+            query: str,
+            annot_mode: str,
+            annot_file_type: str,
+            img_file_type: str
+    ):
+        self.__img_dir_path = img_dir_path
+        self.__annot_path = annot_path
+        self.__query = query
+        self.__annot_mode = annot_mode
+        self.__annot_file_type = annot_file_type
+        self.__img_file_type = img_file_type
+
+    @property
+    def img_dir_path(self):
+        return self.__img_dir_path
+
+    @property
+    def annot_path(self):
+        return self.__annot_path
+
+    @property
+    def query(self):
+        return self.__query
+
+    @property
+    def annot_mode(self):
+        return self.__annot_mode
+
+    @property
+    def annot_file_type(self):
+        return self.__annot_file_type
+
+    @property
+    def img_file_type(self):
+        return self.__img_file_type
 
 
+class RawPackageHolder:
 
+    def __init__(
+            self,
+            img_dir_path: str,
+            annot_base_path: str,
+            query: str,
+            annot_mode: str,
+            annot_file_type: str,
+            img_file_type: str
+    ):
+        self.__img_dir_path = img_dir_path
+        self.__annot_base_path = annot_base_path
+        self.__query = query
+        self.__annot_mode = annot_mode
+        self.__annot_file_type = annot_file_type
+        self.__img_file_type = img_file_type
+        
+        self.raw_packages: List[RawPackage] = None
 
-
-
-
+    def add(self, raw: Union[RawPackage, List[RawPackage]]):
+        """
+        Adds one raw package or a list of raw packages to the raw_packages list
+        Args:
+            raw (Union[RawPackage, List[RawPackage]]): A raw Package or a list of raw packages to be added
+        """
+        if isinstance(raw, RawPackage):
+            self.raw_packages.append(raw)
+        elif isinstance(raw, list):
+            self.raw_packages.extend(raw)
 
 
 
