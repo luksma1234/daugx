@@ -1,7 +1,9 @@
 import os
 import json
 import csv
+import re
 
+from copy import deepcopy
 from typing import Tuple, List, Union, Dict
 from pathlib import Path
 from operator import itemgetter
@@ -15,8 +17,6 @@ from daugx.core.augmentation.annotations import Annotations
 import xmltodict
 import yaml
 import numpy as np
-
-# TODO: Make Loader load DataPackages directly
 
 
 class Query:
@@ -48,7 +48,6 @@ class Query:
                                 XMIN {annotations}[n]{bbox}[0] YMIN {annotations}[n]{bbox}[1] WIDTH
                                 {annotations}[n]{bbox}[2] HEIGHT {annotations}[n]{bbox}[3]'
         """
-
         self.__mode = mode
         self.__query_string = query_string
         self.__keywords: List[str] = []
@@ -164,17 +163,14 @@ class Query:
         """
         Injects indexes to one loading query
         """
-        partial_query = loading_query
-        insert_index = 0
-        n = 0
-        while partial_query.count(c.QUERY_UNDEFINED_ITERATOR) > 0:
-            find_index = partial_query.find(c.QUERY_UNDEFINED_ITERATOR)
-            insert_index += find_index + 1
-            partial_query = partial_query[find_index + 3:]
-            loading_query = loading_query[:insert_index] + str(self.__indexes[n]) + loading_query[insert_index + 1:]
-            insert_index += 2
-            n += 1
-        return loading_query
+        indexed_loading_query = ""
+        prev_index = 0
+        index_occurrences = [m.start() for m in re.finditer(c.REGEX_QUERY_UNDEFINED_ITERATOR, loading_query)]
+        for list_index, index_occurrence in enumerate(index_occurrences):
+            indexed_loading_query += (loading_query[prev_index:index_occurrence] + f"[{self.__indexes[list_index]}]")
+            prev_index = index_occurrence + 3
+        indexed_loading_query += loading_query[prev_index:]
+        return indexed_loading_query
 
     def reset_indexes(self):
         """
@@ -237,6 +233,7 @@ class InitialLoader:
         self.annot_file_type = annot_file_type
         self.img_file_type = img_file_type
         self.boundary_type = self._identify_boundary_type()
+        self.__current_working_file = None
         if self.boundary_type == c.BOUNDARY_TYPE_BBOX:
             self.bbox_keywords = self._extract_bbox_keywords()
             self.bbox_strategy = self._get_bbox_strategy(self.bbox_keywords)
@@ -249,6 +246,10 @@ class InitialLoader:
         """
         raw_annots = self._load_raw_annots()
         return self._raw_to_packages(raw_annots)
+
+    @property
+    def current_working_file(self):
+        return self.__current_working_file
 
     def _load_raw_annots(self) -> List[Dict[str, str]]:
         """
@@ -317,18 +318,19 @@ class InitialLoader:
         content_list = []
         with open(path, "r") as f:
             reader = csv.reader(f)
-        for index, line in enumerate(reader):
-            if index == 0:
-                if is_header(line):
-                    has_header = True
-                    header = line
-            if has_header:
-                content_dict = {}
-                for key, value in zip(header, line):
-                    content_dict[key] = value
-                content_list.append(content_dict)
-            else:
-                content_list.append(line)
+            for index, line in enumerate(reader):
+                if index == 0:
+                    if is_header(line):
+                        has_header = True
+                        header = line
+                        continue
+                if has_header:
+                    content_dict = {}
+                    for key, value in zip(header, line):
+                        content_dict[key] = value
+                    content_list.append(content_dict)
+                else:
+                    content_list.append(line)
         return content_list, path.stem
 
     @staticmethod
@@ -343,19 +345,19 @@ class InitialLoader:
         content_list = []
         with open(path, "r") as f:
             reader = f.readlines()
-        for index, str_line in enumerate(reader):
-            line = string_to_list(str_line)
-            if index == 0:
-                if is_header(line):
-                    has_header = True
-                    header = line
-            if has_header:
-                content_dict = {}
-                for key, value in zip(header, line):
-                    content_dict[key] = value
-                content_list.append(content_dict)
-            else:
-                content_list.append(line)
+            for index, str_line in enumerate(reader):
+                line = string_to_list(str_line)
+                if index == 0:
+                    if is_header(line):
+                        has_header = True
+                        header = line
+                if has_header:
+                    content_dict = {}
+                    for key, value in zip(header, line):
+                        content_dict[key] = value
+                    content_list.append(content_dict)
+                else:
+                    content_list.append(line)
         return content_list, path.stem
 
     def _load_from_query(self, file_path: str) -> List[Dict[str, str]]:
@@ -370,32 +372,54 @@ class InitialLoader:
                              ...
                          }
         """
-        file, file_name = self._load_file(file_path)
+        self.__current_working_file, file_name = self._load_file(file_path)
         load_list = []
         while self.query.indexes is not None:
             item_dict = {}
-            try:
-                for keyword, loading_query in zip(self.query.keywords, self.query.loading_queries):
-                    if loading_query == c.QUERY_CURRENT_FILE_NAME:
-                        item_dict[keyword] = file_name
-                        continue
-                    feature = file
-                    feature_query = loading_query
-                    while feature_query:
-                        if feature_query.startswith("["):
-                            parameter_end = feature_query.find("]")
-                            feature = feature[int(feature_query[1:parameter_end])]
-                        else:
-                            parameter_end = feature_query.find("}")
-                            feature = feature[str(feature_query[1:parameter_end])]
-                        feature_query = feature_query[parameter_end + 1:]
-                    item_dict[keyword] = feature
+            for keyword, loading_query in zip(self.query.keywords, self.query.loading_queries):
+                if loading_query == c.QUERY_CURRENT_FILE_NAME:
+                    item_dict[keyword] = file_name
+                    continue
+                if not loading_query.startswith("[") and not loading_query.startswith("{"):
+                    # its a constant value
+                    item_dict[keyword] = loading_query
+                    continue
+                feature = self._get_item_by_query(loading_query, self.current_working_file)
+                if feature is None:
+                    break
+                item_dict[keyword] = feature
+            else:
+                # ups indexes with failed as false only if loop runs successfully
                 self.query.up_indexes(failed=False)
-            except IndexError:
-                # index error occurs when index is out of bounds
-                self.query.up_indexes(failed=True)
-            load_list.append(item_dict)
+                load_list.append(item_dict)
         return load_list
+
+    def _get_item_by_query(self, feature_query: str, feature: Union[dict, list]):
+        index_list = self._query_to_index_list(feature_query)
+        for index in index_list:
+            try:
+                feature = feature[index]
+            except (IndexError, KeyError, TypeError):
+                self.query.up_indexes(failed=True)
+                return None
+        return feature
+
+    @staticmethod
+    def _query_to_index_list(loading_query: str):
+        index_list = []
+        while loading_query:
+            if loading_query.startswith("["):
+                parameter_end = loading_query.find("]")
+                index_list.append(int(loading_query[1:parameter_end]))
+            elif loading_query.startswith("{"):
+                parameter_end = loading_query.find("}")
+
+                index_list.append(str(loading_query[1:parameter_end]))
+            else:
+                raise ValueError("Missing or invalid brackets in loading query. "
+                                 "Please verify your query and try again.")
+            loading_query = loading_query[parameter_end + 1:]
+        return index_list
 
     def _load_file(self, file_path: str) -> Tuple[Union[list, dict], str]:
         match self.annot_file_type:
@@ -422,11 +446,17 @@ class InitialLoader:
         annot_kwargs = self._refactor_raw_annots(raw_annots)
         grouped_annot_kwargs = self._group_by_img_ref(annot_kwargs)
         for image_ref, annot_kwargs in grouped_annot_kwargs.items():
-            image_path = f"{self.img_dir_path}/{image_ref}.{self.img_file_type}"
+            image_path = self._image_path_from_ref(image_ref)
             image_dims = img_dims(image_path)
-            annotations = Annotations(*image_dims)
+            annotations = Annotations(*image_dims, self.boundary_type)
             package_list.append(DataPackage(image_path, annotations))
         return package_list
+
+    def _image_path_from_ref(self, image_ref: str):
+        if not image_ref.endswith(f".{self.img_file_type}"):
+            return f"{self.img_dir_path}/{image_ref}.{self.img_file_type}"
+        else:
+            return f"{self.img_dir_path}/{image_ref}"
 
     def _grouped_annot_kwargs_to_annotations(self, annot_kwargs_list: list, image_dims: Tuple[int, int]) -> Annotations:
         """
@@ -539,54 +569,48 @@ class InitialLoader:
 
             case [c.KEYWORD_PAIR_XY_MIN, c.KEYWORD_PAIR_XY_MAX] | [c.KEYWORD_PAIR_XY_MAX, c.KEYWORD_PAIR_XY_MIN]:
                 return np.array([
-                    raw_annot[c.QUERY_X_MIN],
-                    raw_annot[c.QUERY_Y_MIN],
-                    raw_annot[c.QUERY_X_MAX],
-                    raw_annot[c.QUERY_Y_MAX],
+                    [raw_annot[c.QUERY_X_MIN], raw_annot[c.QUERY_Y_MIN]],
+                    [raw_annot[c.QUERY_X_MAX], raw_annot[c.QUERY_Y_MAX]]
                 ], np.float32)
 
             case [c.KEYWORD_PAIR_XY_MIN, c.KEYWORD_PAIR_WH] | [c.KEYWORD_PAIR_WH, c.KEYWORD_PAIR_XY_MIN]:
                 return np.array([
-                    raw_annot[c.QUERY_X_MIN],
-                    raw_annot[c.QUERY_Y_MIN],
-                    float(raw_annot[c.QUERY_X_MIN]) + float(raw_annot[c.QUERY_WIDTH]),
-                    float(raw_annot[c.QUERY_Y_MIN]) + float(raw_annot[c.QUERY_HEIGHT]),
+                    [raw_annot[c.QUERY_X_MIN], raw_annot[c.QUERY_Y_MIN]],
+                    [float(raw_annot[c.QUERY_X_MIN]) + float(raw_annot[c.QUERY_WIDTH]),
+                     float(raw_annot[c.QUERY_Y_MIN]) + float(raw_annot[c.QUERY_HEIGHT])]
                 ], np.float32)
 
             case [c.KEYWORD_PAIR_XY_MIN, c.KEYWORD_PAIR_CENTER] | [c.KEYWORD_PAIR_CENTER, c. KEYWORD_PAIR_XY_MIN]:
                 return np.array([
-                    raw_annot[c.QUERY_X_MIN],
-                    raw_annot[c.QUERY_Y_MIN],
-                    float(raw_annot[c.QUERY_X_MIN]) +
-                    (float(raw_annot[c.QUERY_X_CENTER]) - float(raw_annot[c.QUERY_X_MIN])) * 2,
-                    float(raw_annot[c.QUERY_Y_MIN]) +
-                    (float(raw_annot[c.QUERY_Y_CENTER]) - float(raw_annot[c.QUERY_Y_MIN])) * 2,
+                    [raw_annot[c.QUERY_X_MIN], raw_annot[c.QUERY_Y_MIN]],
+                    [float(raw_annot[c.QUERY_X_MIN]) +
+                     (float(raw_annot[c.QUERY_X_CENTER]) - float(raw_annot[c.QUERY_X_MIN])) * 2,
+                     float(raw_annot[c.QUERY_Y_MIN]) +
+                     (float(raw_annot[c.QUERY_Y_CENTER]) - float(raw_annot[c.QUERY_Y_MIN])) * 2]
                 ], np.float32)
 
             case [c.KEYWORD_PAIR_WH, c.KEYWORD_PAIR_CENTER] | [c.KEYWORD_PAIR_CENTER, c.KEYWORD_PAIR_WH]:
                 return np.array([
-                    float(raw_annot[c.QUERY_X_CENTER]) - (float(raw_annot[c.QUERY_WIDTH]) / 2),
-                    float(raw_annot[c.QUERY_Y_CENTER]) - (float(raw_annot[c.QUERY_HEIGHT]) / 2),
-                    float(raw_annot[c.QUERY_X_CENTER]) + (float(raw_annot[c.QUERY_WIDTH]) / 2),
-                    float(raw_annot[c.QUERY_Y_CENTER]) + (float(raw_annot[c.QUERY_HEIGHT]) / 2),
+                    [float(raw_annot[c.QUERY_X_CENTER]) - (float(raw_annot[c.QUERY_WIDTH]) / 2),
+                     float(raw_annot[c.QUERY_Y_CENTER]) - (float(raw_annot[c.QUERY_HEIGHT]) / 2)],
+                    [float(raw_annot[c.QUERY_X_CENTER]) + (float(raw_annot[c.QUERY_WIDTH]) / 2),
+                     float(raw_annot[c.QUERY_Y_CENTER]) + (float(raw_annot[c.QUERY_HEIGHT]) / 2)]
                 ], np.float32)
 
             case [c.KEYWORD_PAIR_WH, c.KEYWORD_PAIR_XY_MAX] | [c.KEYWORD_PAIR_XY_MAX, c.KEYWORD_PAIR_WH]:
                 return np.array([
-                    float(raw_annot[c.QUERY_X_MAX]) - float(raw_annot[c.QUERY_WIDTH]),
-                    float(raw_annot[c.QUERY_Y_MAX]) - float(raw_annot[c.QUERY_HEIGHT]),
-                    raw_annot[c.QUERY_X_MAX],
-                    raw_annot[c.QUERY_Y_MAX]
+                    [float(raw_annot[c.QUERY_X_MAX]) - float(raw_annot[c.QUERY_WIDTH]),
+                     float(raw_annot[c.QUERY_Y_MAX]) - float(raw_annot[c.QUERY_HEIGHT])],
+                    [raw_annot[c.QUERY_X_MAX], raw_annot[c.QUERY_Y_MAX]]
                 ], np.float32)
 
             case [c.KEYWORD_PAIR_XY_MAX, c.KEYWORD_PAIR_CENTER] | [c.KEYWORD_PAIR_CENTER, c. KEYWORD_PAIR_XY_MAX]:
                 return np.array([
-                    float(raw_annot[c.QUERY_X_MAX]) -
-                    (float(raw_annot[c.QUERY_X_MAX]) - float(raw_annot[c.QUERY_X_CENTER])) * 2,
-                    float(raw_annot[c.QUERY_Y_MAX]) -
-                    (float(raw_annot[c.QUERY_Y_MAX]) - float(raw_annot[c.QUERY_Y_CENTER])) * 2,
-                    raw_annot[c.QUERY_X_MAX],
-                    raw_annot[c.QUERY_Y_MAX],
+                    [float(raw_annot[c.QUERY_X_MAX]) -
+                     (float(raw_annot[c.QUERY_X_MAX]) - float(raw_annot[c.QUERY_X_CENTER])) * 2,
+                     float(raw_annot[c.QUERY_Y_MAX]) -
+                     (float(raw_annot[c.QUERY_Y_MAX]) - float(raw_annot[c.QUERY_Y_CENTER])) * 2],
+                    [raw_annot[c.QUERY_X_MAX], raw_annot[c.QUERY_Y_MAX]]
                 ], np.float32)
 
     def _extract_bbox_keywords(self) -> List[str]:
@@ -620,26 +644,25 @@ class InitialLoader:
              f"{c.QUERY_Y_CENTER}' or '{c.QUERY_WIDTH}, {c.QUERY_HEIGHT}'")
         return bbox_strategy[:2]
 
-    def _extract_polys(self, raw_annot: dict) -> np.ndarray:
+    @staticmethod
+    def _extract_polys(raw_annot: dict) -> np.ndarray:
         """
-        Extracts all polygon information from a raw annotation. Assumes that polygon is a string with can start and end
-        with brackets and items are separated by comma.
+        Extracts all polygon information from a raw annotation. Assumes polys to be in x,y,x,y format inside a list.
         Args:
             raw_annot (dict): Raw annotation from loader
         Returns:
             (np.ndarray): Numpy array of polygon
         """
-        # TODO: This is much more complicated due to poly separation by space or polys stored as array...
-        poly_string = raw_annot[c.QUERY_POLYGON]
+        poly_string: str = str(raw_annot[c.QUERY_POLYGON])
         # remove spaces
         poly_string = poly_string.replace(" ", "")
-        # remove list brackets
-        poly_string = poly_string.replace("[", "")
-        poly_string = poly_string.replace("]", "")
-        # return split string by comma
-        return np.array(poly_string.split(","), np.float32)
+        # remove leading and trailing brackets
+        poly_string = poly_string.strip("[]")
+        polys = poly_string.split(",")
+        return np.array(polys, np.float32).reshape((int(len(polys) / 2), 2))
 
-    def _extract_keypoint(self, raw_annot: dict) -> np.ndarray:
+    @staticmethod
+    def _extract_keypoint(raw_annot: dict) -> np.ndarray:
         """
         Extracts a keypoint from a raw annotation.
         Args:
@@ -647,5 +670,8 @@ class InitialLoader:
         Returns:
             (np.ndarray): Numpy array of keypoint
         """
-        return np.array(raw_annot[c.QUERY_KEYPOINT], np.)
+        keypoint_string: str = raw_annot[c.QUERY_KEYPOINT]
+        keypoint_string = keypoint_string.strip("[]")
+        keypoint_string = keypoint_string.replace(" ", "")
+        return np.array(keypoint_string.split(","))
 
