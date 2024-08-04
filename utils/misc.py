@@ -32,6 +32,10 @@ def get_seed() -> int:
     return int(get_random() * 90000) + 10000
 
 
+def set_seed(seed: int) -> None:
+    random.seed = seed
+
+
 def is_executed(execution_probability: float) -> bool:
     return True if get_random() < execution_probability else False
 

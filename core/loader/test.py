@@ -1,6 +1,6 @@
 from loader import InitialLoader
 
-# TODO: change { to [
+# TODO: change { to [S
 
 query = "LABELID 1 IMAGEREF [n]{image} XMIN [n]{xmin} YMIN [n]{ymin} XMAX [n]{xmax} YMAX [n]{ymax}"
 

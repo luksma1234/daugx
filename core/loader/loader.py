@@ -3,7 +3,6 @@ import json
 import csv
 import re
 
-from copy import deepcopy
 from typing import Tuple, List, Union, Dict
 from pathlib import Path
 from operator import itemgetter
@@ -240,7 +239,7 @@ class InitialLoader:
 
     def load(self) -> List[DataPackage]:
         """
-        Loads all annotations defines in query.
+        Loads all annotations defined in query.
         Returns:
             (List[DataPackage]): All Annotations of all image references.
         """
@@ -674,4 +673,3 @@ class InitialLoader:
         keypoint_string = keypoint_string.strip("[]")
         keypoint_string = keypoint_string.replace(" ", "")
         return np.array(keypoint_string.split(","))
-
