@@ -1,55 +1,109 @@
 import warnings
+from typing import Tuple
 
-from daugx.utils import constants as c
+from daugx.core.agent import constants as c
 from daugx.utils.node_utils import is_output, is_dividing, is_inflationary, config_to_node
+from daugx.utils.misc import set_seed
 from .path import Path
 from .node import *
 from copy import deepcopy
 from .sequence import Sequence
 
+from daugx.core.loader.loader import InitialLoader
 # TODO: Change execution to application. exe_prob -> app_prob
 
 
-class Plan:
+class Agent:
     """
-    A plan to augment a given dataset. The plan reads in a bluprint.json.
+    An Agent which takes an augmentation workflow as input. The augmentation workflow is initially split into all
+    possible paths for execution. Each path is assigned an execution probability. Whenever an augmentation is requested
+    from the Agent, a path is randomly picked and executed. Each path execution returns a tuple of the resulting image
+    and its annotations, both as numpy arrays.
+
+    The Agent initializes either by an API-Key or by a path to a workflow file as .json format.
+    When initialized via API-Key, make sure you have connection to the internet. When using offline, please take
+    advantage of the option to directly load a .json file.
+
+    You can fetch one image from the Agent by using the 'fetch' method.
+
+        # import daugx
+        #
+        # agent = daugx.Agent("my_api_key")
+        # one_image = agent.fetch()
+
+    You can use this method inside a dataloader e.g. the Tensorflow Dataloader or the PyTorch Dataloader. This ensures
+    seamless integration into your training process. Make sure the initialization of the Agent takes place outside the
+    loop or the dataloader, to prevent an initialization each time data is fetched.
     """
     def __init__(self, file_path: str, seed: int = None):
-        self.blueprint = load_json(file_path)
+        """
+        Args:
+            file_path (str): path to augmentation workflow file
+            seed (int): seed for all Agent tasks - this seed will be used throughout all augmentations
+        """
+        self.config = load_json(file_path)
+        self.workflow = Workflow(self.config)
+        # TODO: Implement a Dataset class which holds the list of DataPackages and has functions for choosing one
+        #  package over the other.
 
-        self.nodes: List[Node] = []
-        self.sequences: List[Sequence] = []
-        self.paths: List[Path] = []
+        # TODO: How do I know from which dataset a specific image should be loaded?
+        self.datasets = None
 
         self.seed = seed
 
-        # build plan
-        self.build()
-
-    def build(self) -> None:
-        """
-        Build the plan by its blueprint.
-        :return: None
-        """
         if self.seed is None:
             self.seed = get_seed()
+        set_seed(self.seed)
+        warnings.warn(f"daugx - Seed for execution: {self.seed}")
 
-        warnings.warn(f"Daugx - Seed for execution: {self.seed}")
+    def fetch(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Gets a random path and executes it. All augmentations are applied in this step.
 
+        Returns:
+            (Tuple[np.ndarray, np.ndarray]): Tuple of image as numpy array and its annotations as numpy array
+        """
+        pass
+
+
+class Workflow:
+
+    def __init__(self, workflow_dict: dict):
+        self.workflow_dict = workflow_dict
+
+        self.__nodes: List[Node] = []
+        self.__sequences: List[Sequence] = []
+        self.__paths: List[Path] = []
+        self._build()
+
+    @property
+    def paths(self):
+        return self.__paths
+
+    @property
+    def rand_path(self):
+        return self._get_path()
+
+    def _build(self) -> None:
+        """
+        Builds all possible paths of the workflow. First all nodes are initialized, then all sequences are created from
+        the Nodes. Afterward, the Sequences are assembled into all Paths possible.
+        """
         self._init_nodes()
         self._init_seqs()
         self._init_paths()
 
     def _init_nodes(self) -> None:
         """
-        Initializes nodes from blueprint.
-        :return: None
+        Initializes all Nodes listed in the workflow. Nodes are initialized by their types. Nodes can be of type
+        'input', 'output', 'merge', 'split', 'filter' and 'augment'.
+        Sets the next argument for all initialized Nodes. Next node can either be one Node or a list of Nodes.
         """
-        # init base nodes
-        node_configs = self.blueprint[c.NODES_STR]
-        self.nodes = [config_to_node(node_config) for node_config in node_configs]
+        # init nodes
+        node_configs = self.workflow_dict[c.NODES_STR]
+        self.__nodes = [config_to_node(node_config) for node_config in node_configs]
         # set next_nodes
-        for node_config, node in zip(node_configs, self.nodes):
+        for node_config, node in zip(node_configs, self.__nodes):
             if isinstance(node_config[c.NEXT_STR], list):
                 next_nodes = []
                 for ident in node_config[c.NEXT_STR]:
@@ -62,29 +116,38 @@ class Plan:
     def _get_node_by_id(self, id_: str) -> Node or None:
         """
         Gets a node by an ID.
-        Args:
-            id_: ID of the Node
 
-        Returns: Node or None if no node with matching id was found.
+        Args:
+            id_ (str): ID of the Node
+        Returns:
+            (Node): if a matching node was found.
+            (None): if no node with matching id was found.
         """
-        for node in self.nodes:
+        for node in self.__nodes:
             if node.id == id_:
                 return node
-        else:
-            return None
 
     def _get_ipt_nodes(self) -> List[InputNode]:
         """
-        Gets all input nodes in self.nodes.
+        Returns all nodes in self.node of type InputNode.
 
-        Returns: List of input Nodes
+        Returns:
+            (List[InputNode]): List of input Nodes
         """
-        return [node for node in self.nodes if isinstance(node, InputNode)]
+        return [node for node in self.__nodes if isinstance(node, InputNode)]
 
     def _init_seqs(self) -> None:
         """
-        Initializes all sequences from nodes.
-        :return:
+        Initializes all Sequences which can be created from Nodes. Sequences are essentially lists of succeeding Nodes.
+        Sequences take up Nodes until the Node to be incorporated has one of the following 'sequence end properties':
+        - is an output node (including)
+        - is a dividing node (excluding)
+        - is an inflationary node (excluding)
+        A new Sequence will start after (including) or with that Node (excluding).
+
+        Sequence initialization starts from the input Node(s). After initialization, the execution probabilities of all
+        input sequences is calculated. The execution probability of input sequences is calculated by dividing the
+        amount of images the input node provides, by the sum of images of all input nodes.
         """
         ipt_nodes = self._get_ipt_nodes()
         for node in ipt_nodes:
@@ -93,14 +156,16 @@ class Plan:
 
     def _build_seqs(self, node: Node, exe_prob=None) -> None:
         """
-        Builds a sequence starting from a node.
-        A sequence stops on:
-        - an output node (including)
-        - a dividing node (excluding)
-        - an inflationary node (excluding)
-        :param node: Any node as entry point for sequence
-        :param exe_prob: The execution probability for the given node (optional)
-        :return: None
+        Builds a sequence starting from a given node. Takes the next Node from the given Node and incorporates it into
+        the sequence, if none of the 'sequence end properties' match.
+        If an including 'sequence end property' matches, the Node is added to the sequence, and the sequence is
+        finished. A new sequence is then created recursively from the next Node.
+        If an excluding 'sequence end property' matches, the sequence is finished without adding the Node. A new
+        sequence is then created recursively from this Node.
+
+        Args:
+            node (Node): Any node as entry point for sequence
+            exe_prob: The execution probability for the given node (only if the Node has one)
         """
         seq = Sequence()
         if exe_prob is not None:
@@ -145,7 +210,7 @@ class Plan:
             split_node = deepcopy(node)
             split_node.set_split_idx(index)
             self._build_seqs(split_node, share)
-
+            
     def _build_infl_seqs(self, seq: Sequence, node: Node) -> None:
         """
         Builds inflationary sequences. Finishes current sequence and build upon next and next.next node.
@@ -167,7 +232,7 @@ class Plan:
                  False if sequence is already part of self.sequences
         """
         if self._is_unique(seq):
-            self.sequences.append(seq)
+            self.__sequences.append(seq)
             return True
         return False
 
@@ -179,7 +244,7 @@ class Plan:
         :return:
         """
         sequences = []
-        for sequence in self.sequences:
+        for sequence in self.__sequences:
             if start_node_id is not None and sequence.get_start_node().id == start_node_id:
                 sequences.append(sequence)
             elif end_node_id is not None and sequence.get_end_node().id == end_node_id:
@@ -197,15 +262,6 @@ class Plan:
             seq = self._get_seqs(start_node_id=node.id)[0]
             seq.exe_prob = node.n_data / data_sum
 
-    def add_path(self, path: Path) -> bool:
-        """
-        Adds a path to self.path.
-        :param path: Any path
-        :return: True if path was added
-        """
-        self.paths.append(path)
-        return True
-
     def _is_unique(self, new_seq: Sequence) -> bool:
         """
         Checks if a sequence is already existing in self.sequences. Compares all nodes and next nodes.
@@ -213,7 +269,7 @@ class Plan:
         :return: True if sequence is unique
                  False if sequence is already part of self.sequences
         """
-        for seq in self.sequences:
+        for seq in self.__sequences:
             # checks if all sequence ids match
             if len(seq) == len(new_seq) and all([n.id == nn.id for n, nn in zip(seq.nodes, new_seq.nodes)]):
                 if seq.next_node is None and new_seq.next_node is None:
@@ -237,14 +293,14 @@ class Plan:
             self._build_incomplete_paths()
 
     def _get_incomplete_paths(self) -> List[Path]:
-        return [path for path in self.paths if not path.is_complete]
+        return [path for path in self.__paths if not path.is_complete]
 
     def _build_ipt_paths(self) -> None:
         """
         Builds linear paths from all existing input sequences. Adds paths to self.paths.
         :return: None
         """
-        input_sequences = [sequence for sequence in self.sequences if isinstance(sequence.get_start_node(), InputNode)]
+        input_sequences = [sequence for sequence in self.__sequences if isinstance(sequence.get_start_node(), InputNode)]
         for input_sequence in input_sequences:
             input_path = Path()
             input_path.add_sequence(input_sequence, input_sequence.next_node)
@@ -268,12 +324,9 @@ class Plan:
                 if not next_path.is_complete:
                     self._build_linear_path(next_path)
                 else:
-                    self.paths.append(next_path)
+                    self.__paths.append(next_path)
         else:
-            self.paths.append(path)
-
-    def _get_paths(self, next_node_id=None):
-        return [path for path in self.paths if path.next_node is not None and path.next_node.id == next_node_id]
+            self.__paths.append(path)
 
     def _group_incomplete_paths(self) -> None:
         """
@@ -289,7 +342,7 @@ class Plan:
                 groups[path.next_node.id].append(path)
         self._combine_groups(groups)
         for path in paths:
-            self.paths.remove(path)
+            self.__paths.remove(path)
 
     def _combine_groups(self, groups: dict) -> None:
         """
@@ -303,7 +356,7 @@ class Plan:
             next_node = group[0].next_node
             new_path = Path()
             new_path.add_sequence(group, next_node)
-            self.paths.append(new_path)
+            self.__paths.append(new_path)
 
     def _build_incomplete_paths(self) -> None:
         """
@@ -319,30 +372,50 @@ class Plan:
 
     def _get_path(self) -> Path:
         """
-        Gets a path from a list of paths. Paths are sorted by their execution probability.
-
-        Returns: Chosen Path
+        Gets a path from a list of paths. Paths are sorted by their execution probability. Chooses the method for
+        getting paths by the amount of paths available.
+        Returns:
+            (Path): Chosen path
         """
         prob = get_random()
-        start_index = int(prob * len(self.paths))
+        if len(self.__paths) > 100:
+            return self._get_path_long(prob)
+        else:
+            return self._get_path_short(prob)
+
+    def _get_path_long(self, prob: float):
+        """
+        Gets a path from a list of paths. Works faster for a list of >100 paths.
+        """
+        start_index = int(prob * len(self.__paths))
         if start_index == 0:
+            return self._get_path_short(prob)
+        elif self.__paths[start_index - 1].exe_prob_sum < prob < self.__paths[start_index].exe_prob_sum:
+            # direct hit
+            return self.__paths[start_index]
+        elif self.__paths[start_index].exe_prob_sum < prob:
+            # iterates list from guessed index upwards
             return self._choose_path_by_prob(start_index, False, prob)
-        elif self.paths[start_index - 1].exe_prob_sum < prob < self.paths[start_index].exe_prob_sum:
-            return self.paths[start_index]
-        elif self.paths[start_index].exe_prob_sum < prob:
-            return self._choose_path_by_prob(start_index, False, prob)
-        elif self.paths[start_index].exe_prob_sum > prob:
+        elif self.__paths[start_index].exe_prob_sum > prob:
+            # iterates list from guessed index downwards
             return self._choose_path_by_prob(start_index, True, prob)
+
+    def _get_path_short(self, prob: float):
+        """
+        Gets a path from a list of paths. Works faster for a list of <100 paths.
+        """
+        return self._choose_path_by_prob(0, False, prob)
 
     def _choose_path_by_prob(self, start_index: int, inverted: bool, prob: float) -> Path:
         """
+        Chooses one path by a given probability
 
         Returns:
-
+            (Path): Chosen path
         """
-        cur_prob = self.paths[start_index].exe_prob_sum
+        cur_prob = self.__paths[start_index].exe_prob_sum
         if inverted:
-            paths = self.paths[:start_index]
+            paths = self.__paths[:start_index]
             reversed(paths)
             for path in paths:
                 if prob > cur_prob - path.exe_prob:
@@ -350,7 +423,7 @@ class Plan:
                 else:
                     cur_prob -= path.exe_prob
         else:
-            paths = self.paths[start_index + 1:]
+            paths = self.__paths[start_index + 1:]
             for path in paths:
                 if prob < cur_prob + path.exe_prob:
                     return path

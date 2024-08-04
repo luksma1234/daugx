@@ -1,4 +1,4 @@
-from ..logic.node import (
+from daugx.core.agent.node import (
     Node,
     InputNode,
     OutputNode,
@@ -8,7 +8,7 @@ from ..logic.node import (
     AugmentationNode,
     DividingNode
 )
-from . import constants as c
+from ..core.agent import constants as c
 
 
 def is_input(node: Node):
@@ -38,17 +38,17 @@ def is_inflationary(node: Node):
 def config_to_node(node_config: dict) -> Node:
     node_type = node_config[c.TYPE_STR]
     params = node_config[c.PARAMS_STR]
-    if node_type == c.NODE_TYPE_INPUT:
-        return InputNode(**params)
-    elif node_type == c.NODE_TYPE_OUTPUT:
-        return OutputNode(**params)
-    elif node_type == c.NODE_TYPE_MERGE:
-        return MergeNode(**params)
-    elif node_type == c.NODE_TYPE_SPLIT:
-        return SplitNode(**params)
-    elif node_type == c.NODE_TYPE_FILTER:
-        return FilterNode(**params)
-    elif node_type == c.NODE_TYPE_AUGMENTATION:
-        return AugmentationNode(**params)
-    else:
-        raise ValueError(f"Node Type '{node_type}' is unknown.")
+    match node_type:
+        case c.NODE_TYPE_INPUT:
+            return InputNode(**params)
+        case c.NODE_TYPE_OUTPUT:
+            return OutputNode(**params)
+        case c.NODE_TYPE_MERGE:
+            return MergeNode(**params)
+        case c.NODE_TYPE_SPLIT:
+            return SplitNode(**params)
+        case c.NODE_TYPE_FILTER:
+            return FilterNode(**params)
+        case c.NODE_TYPE_AUGMENTATION:
+            return AugmentationNode(**params)
+    raise ValueError(f"Node Type '{node_type}' is unknown.")

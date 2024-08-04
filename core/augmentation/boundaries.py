@@ -1,5 +1,3 @@
-import math
-from typing import List, Optional, Union
 
 from .borders import ImageBorder
 
