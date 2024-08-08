@@ -136,6 +136,10 @@ class FilterSequence:
         self.__included = []
         self.__excluded = []
 
+    @property
+    def id(self):
+        return self.__id
+
     def add(self, filter_: Filter, operator: str):
         """
         Adds a filter and an operator to the sequence. The Operator can be one of ['AND', 'OR', 'NONE']
