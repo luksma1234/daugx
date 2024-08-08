@@ -1,5 +1,0 @@
-scipy
-numpy
-opencv-python
-xmltodict
-pyyaml
