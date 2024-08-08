@@ -69,6 +69,14 @@ class Annotation:
     def area(self):
         return self._get_area()
 
+    @property
+    def width(self):
+        return self.__boundary.width
+
+    @property
+    def height(self):
+        return self.__boundary.height
+
     def set_label(self, label_id: Optional[int] = None, label_name: Optional[str] = None) -> None:
         if self.__label is None:
             self.__label = Label(label_id, label_name)
