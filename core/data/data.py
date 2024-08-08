@@ -1,9 +1,11 @@
 from copy import deepcopy
-from typing import Tuple, List, Union, Optional
+from typing import Tuple, List, Union, Optional, Dict
 
 from daugx.core.data.meta_inf import MetaInf
+from daugx.core.data.filter import FilterSequence, Filter
 from daugx.core.augmentation.annotations import Annotations
-from daugx.utils.misc import read_img, get_random
+from daugx.utils.misc import read_img, get_random, is_in_dict, fetch_by_prob
+import daugx.core.constants as c
 
 
 import numpy as np
@@ -48,27 +50,55 @@ class DataPackage:
 
 
 class Dataset:
-    def __init__(self, data_packages: List[DataPackage], filters: List[str]):
+    def __init__(self, id_, data_packages: List[DataPackage], filters: List[dict]):
         """
         Filters are applied in the initialization.
+        Args:
+            data_packages (List[DataPackage]): All data packages for this dataset
+            filters (List[dict]): Filters applied for this dataset
         """
+        # TODO: What happens if there are not indexes for a filter?
+        self.__id = id_
         self.data_packages = data_packages
         self.used = []
+        self.__filter_indexes: Dict[str, list] = {}
+        self._init_filters(filters)
 
-    def __getitem__(self, index):
-        if isinstance(index, int):
-            return self.data_packages[index]
-        else:
-            raise ValueError(f"Unable to parse index with type {type(index)}.")
+    @property
+    def id(self):
+        return self.__id
 
-    def fetch(self, filter_: Optional[str]):
-        index = int(get_random() * len(self.data_packages))
+    def fetch(self, filter_: Optional[Union[str, list]]):
+        rand = get_random()
+        if filter_ is None:
+            return fetch_by_prob(self.data_packages, rand)
+        elif isinstance(filter_, str):
+            return self.data_packages[fetch_by_prob(self.__filter_indexes[filter_], rand)]
+        elif isinstance(filter_, list):
+            if not is_in_dict(str(filter_), self.__filter_indexes):
+                self._combine_filters(filter_)
+            return self.data_packages[fetch_by_prob(self.__filter_indexes[str(filter_)], rand)]
 
-    def _filter(self):
-        pass
+    def _init_filters(self, filters: List[dict]):
+        for filter_dict in filters:
+            sequence = FilterSequence(filter_dict[c.FILTER_DICT_ID])
+            for sequence_dict in filter_dict[c.FILTER_DICT_SEQUENCE]:
+                filter_ = Filter(
+                    sequence_dict[c.FILTER_DICT_TYPE],
+                    sequence_dict[c.FILTER_DICT_SPECIFIER],
+                    sequence_dict[c.FILTER_DICT_OPERATOR],
+                    sequence_dict[c.FILTER_DICT_VALUE]
+                )
+                sequence.add(filter_, sequence_dict[c.FILTER_DICT_CHAIN_OPERATOR])
+            included, excluded = sequence.filter(self.data_packages)
+            if not filter_dict[c.FILTER_DICT_IS_REVERSED]:
+                self.__filter_indexes[sequence.id] = included
+            else:
+                self.__filter_indexes[sequence.id] = excluded
 
-    def reset(self):
-        pass
-
-    def _update_used(self, index: int):
-        pass
+    def _combine_filters(self, filters: List[str]):
+        filter_set = set(filters[0])
+        for s in filters[1:]:
+            filter_set.intersection_update(s)
+        filter_list = list(filter_set)
+        self.__filter_indexes[str(filters)] = filter_list

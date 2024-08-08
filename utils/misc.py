@@ -40,7 +40,7 @@ def is_executed(execution_probability: float) -> bool:
     return True if get_random() < execution_probability else False
 
 
-def choose_by_prob(value_list: list, probability_list: List[float]):
+def fetch_by_prob_list(value_list: list, probability_list: List[float]):
     rand = get_random()
     assert len(value_list) == len(probability_list), "Ambiguous value to probability relation."
     prob_sum = 0
@@ -50,6 +50,10 @@ def choose_by_prob(value_list: list, probability_list: List[float]):
             return value
     else:
         raise NotImplementedError("Something went wrong here, this code should be unreachable.")
+
+
+def fetch_by_prob(value_list: list, probability: float):
+    return value_list[int(probability * len(value_list))]
 
 
 def load_json(file_path) -> dict:
