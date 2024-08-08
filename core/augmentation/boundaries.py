@@ -1,3 +1,4 @@
+from typing import Tuple
 
 from .borders import ImageBorder
 
@@ -68,6 +69,26 @@ class Boundary:
     @property
     def visualize(self):
         return self._points
+
+    @property
+    def width(self):
+        return self.__get_width()
+
+    @property
+    def height(self):
+        return self.__get_height()
+
+    @property
+    def center(self):
+        return self.__get_boundary_center()
+
+    def __get_width(self):
+        points_x, points_y = self._points.T
+        return np.max(points_x) - np.min(points_x)
+
+    def __get_height(self):
+        points_x, points_y = self._points.T
+        return np.max(points_y) - np.min(points_y)
 
     def __get_boundary_center(self):
         """
@@ -231,6 +252,24 @@ class KeyPBoundary(Boundary):
         Keypoints have no area. Therefore, 0 is returned.
         """
         return 0
+
+    def __get_width(self):
+        """
+        Keypoints have no width. Therefore, 0 is returned
+        """
+        return 0
+
+    def __get_height(self):
+        """
+        Keypoints have no height. Therefore, 0 is returned
+        """
+        return 0
+
+    def __get_boundary_center(self):
+        """
+        The Keypoint itself is the center.
+        """
+        return self.points
 
 
 class PolyBoundary(Boundary):
