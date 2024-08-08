@@ -3,6 +3,10 @@ from daugx.core.augmentation.annotations import Annotations
 
 class MetaInf:
     def __init__(self, annotations: Annotations):
+        """
+        Collection of all available meta information methods.
+        Meta information is used for filtering or analysis.
+        """
         self.annotations = annotations
         self.img_width = annotations.width
         self.img_height = annotations.height
