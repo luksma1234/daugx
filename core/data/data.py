@@ -7,7 +7,6 @@ from daugx.core.augmentation.annotations import Annotations
 from daugx.utils.misc import read_img, get_random, is_in_dict, fetch_by_prob
 import daugx.core.constants as c
 
-
 import numpy as np
 
 
@@ -50,14 +49,15 @@ class DataPackage:
 
 
 class Dataset:
-    def __init__(self, id_, data_packages: List[DataPackage], filters: List[dict]):
+    def __init__(self, id_, data_packages: List[DataPackage], filters: List[FilterSequence]):
         """
         Filters are applied in the initialization.
+        What happens if there are no indexes for a filter?
+        -> This means that a filtering has no results. Therefore, there should be no path which uses this filter.
         Args:
             data_packages (List[DataPackage]): All data packages for this dataset
             filters (List[dict]): Filters applied for this dataset
         """
-        # TODO: What happens if there are not indexes for a filter?
         self.__id = id_
         self.data_packages = data_packages
         self.used = []
@@ -79,22 +79,9 @@ class Dataset:
                 self._combine_filters(filter_)
             return self.data_packages[fetch_by_prob(self.__filter_indexes[str(filter_)], rand)]
 
-    def _init_filters(self, filters: List[dict]):
-        for filter_dict in filters:
-            sequence = FilterSequence(filter_dict[c.FILTER_DICT_ID])
-            for sequence_dict in filter_dict[c.FILTER_DICT_SEQUENCE]:
-                filter_ = Filter(
-                    sequence_dict[c.FILTER_DICT_TYPE],
-                    sequence_dict[c.FILTER_DICT_SPECIFIER],
-                    sequence_dict[c.FILTER_DICT_OPERATOR],
-                    sequence_dict[c.FILTER_DICT_VALUE]
-                )
-                sequence.add(filter_, sequence_dict[c.FILTER_DICT_CHAIN_OPERATOR])
-            included, excluded = sequence.filter(self.data_packages)
-            if not filter_dict[c.FILTER_DICT_IS_REVERSED]:
-                self.__filter_indexes[sequence.id] = included
-            else:
-                self.__filter_indexes[sequence.id] = excluded
+    def _init_filters(self, filters: List[FilterSequence]):
+        for sequence in filters:
+            self.__filter_indexes[sequence.id] = sequence.filter(self.data_packages)
 
     def _combine_filters(self, filters: List[str]):
         filter_set = set(filters[0])

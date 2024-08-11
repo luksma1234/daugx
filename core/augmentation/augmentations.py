@@ -199,7 +199,7 @@ class Mosaic(MITransform):
 
 
 class Crop(SITransform):
-    def __init__(self, x_min, y_min, x_max, y_max) -> None:
+    def __init__(self, x_min: float, y_min: float, x_max: float, y_max: float) -> None:
         """
         Crops an image into the specified boundary.
         Args:

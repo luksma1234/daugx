@@ -1,69 +1,13 @@
-import warnings
-from typing import Tuple
 
-from daugx.core.agent import constants as c
-from daugx.utils.node_utils import is_output, is_dividing, is_inflationary, config_to_node
-from daugx.utils.misc import set_seed
-from .path import Path
-from .node import *
 from copy import deepcopy
-from .sequence import Sequence
 
-from daugx.core.loader.loader import InitialLoader
+from daugx.core import constants as c
+from daugx.utils.node_utils import is_output, is_dividing, is_inflationary, config_to_node
+from daugx.core.agent.path import Path
+from daugx.core.agent.node import *
+from daugx.core.agent.sequence import Sequence
+
 # TODO: Change execution to application. exe_prob -> app_prob
-
-
-class Agent:
-    """
-    An Agent which takes an augmentation workflow as input. The augmentation workflow is initially split into all
-    possible paths for execution. Each path is assigned an execution probability. Whenever an augmentation is requested
-    from the Agent, a path is randomly picked and executed. Each path execution returns a tuple of the resulting image
-    and its annotations, both as numpy arrays.
-
-    The Agent initializes either by an API-Key or by a path to a workflow file as .json format.
-    When initialized via API-Key, make sure you have connection to the internet. When using offline, please take
-    advantage of the option to directly load a .json file.
-
-    You can fetch one image from the Agent by using the 'fetch' method.
-
-        # import daugx
-        #
-        # agent = daugx.Agent("my_api_key")
-        # one_image = agent.fetch()
-
-    You can use this method inside a dataloader e.g. the Tensorflow Dataloader or the PyTorch Dataloader. This ensures
-    seamless integration into your training process. Make sure the initialization of the Agent takes place outside the
-    loop or the dataloader, to prevent an initialization each time data is fetched.
-    """
-    def __init__(self, file_path: str, seed: int = None):
-        """
-        Args:
-            file_path (str): path to augmentation workflow file
-            seed (int): seed for all Agent tasks - this seed will be used throughout all augmentations
-        """
-        self.config = load_json(file_path)
-        self.workflow = Workflow(self.config)
-        # TODO: Implement a Dataset class which holds the list of DataPackages and has functions for choosing one
-        #  package over the other.
-
-        # TODO: How do I know from which dataset a specific image should be loaded?
-        self.datasets = None
-
-        self.seed = seed
-
-        if self.seed is None:
-            self.seed = get_seed()
-        set_seed(self.seed)
-        warnings.warn(f"daugx - Seed for execution: {self.seed}")
-
-    def fetch(self) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Gets a random path and executes it. All augmentations are applied in this step.
-
-        Returns:
-            (Tuple[np.ndarray, np.ndarray]): Tuple of image as numpy array and its annotations as numpy array
-        """
-        pass
 
 
 class Workflow:
@@ -81,7 +25,7 @@ class Workflow:
         return self.__paths
 
     @property
-    def rand_path(self):
+    def fetch(self):
         return self._get_path()
 
     def _build(self) -> None:
@@ -104,13 +48,13 @@ class Workflow:
         self.__nodes = [config_to_node(node_config) for node_config in node_configs]
         # set next_nodes
         for node_config, node in zip(node_configs, self.__nodes):
-            if isinstance(node_config[c.NEXT_STR], list):
+            if isinstance(node_config[c.NODE_NEXT_STR], list):
                 next_nodes = []
-                for ident in node_config[c.NEXT_STR]:
+                for ident in node_config[c.NODE_NEXT_STR]:
                     next_nodes.append(self._get_node_by_id(ident))
                 node.next = next_nodes
             else:
-                next_node = self._get_node_by_id(node_config[c.NEXT_STR])
+                next_node = self._get_node_by_id(node_config[c.NODE_NEXT_STR])
                 node.next = next_node
 
     def _get_node_by_id(self, id_: str) -> Node or None:
@@ -161,7 +105,7 @@ class Workflow:
         If an including 'sequence end property' matches, the Node is added to the sequence, and the sequence is
         finished. A new sequence is then created recursively from the next Node.
         If an excluding 'sequence end property' matches, the sequence is finished without adding the Node. A new
-        sequence is then created recursively from this Node.
+        sequence created recursively from this Node.
 
         Args:
             node (Node): Any node as entry point for sequence

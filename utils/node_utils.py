@@ -8,7 +8,7 @@ from daugx.core.agent.node import (
     AugmentationNode,
     DividingNode
 )
-from ..core.agent import constants as c
+from ..core.agent import s as c
 
 
 def is_input(node: Node):
@@ -36,7 +36,7 @@ def is_inflationary(node: Node):
 
 
 def config_to_node(node_config: dict) -> Node:
-    node_type = node_config[c.TYPE_STR]
+    node_type = node_config[c.NODE_TYPE_STR]
     params = node_config[c.PARAMS_STR]
     match node_type:
         case c.NODE_TYPE_INPUT:

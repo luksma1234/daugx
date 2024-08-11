@@ -108,8 +108,18 @@ def list_intersection(a: list, b: list) -> list:
     return list(set(a).intersection(set(b)))
 
 
+def is_api_key(string: str):
+    if not len(string) == 64:
+        return False
+    if string.find("/") != -1:
+        return False
+    if string.find("\\") != -1:
+        return False
+    return True
 
 
+def get_config_from_api(api_key: str):
+    pass
 
 
 

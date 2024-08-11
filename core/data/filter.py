@@ -128,8 +128,9 @@ class Filter:
 
 
 class FilterSequence:
-    def __init__(self, id_: str):
+    def __init__(self, id_: str, is_revered: bool = False):
         self.__id = id_
+        self.__is_reversed = is_revered
         self.__sequence: List[tuple] = []
         self.__res: bool = True
         self.__included = []
@@ -139,21 +140,26 @@ class FilterSequence:
     def id(self):
         return self.__id
 
+    @property
+    def is_reversed(self):
+        return self.__is_reversed
+
     def add(self, filter_: Filter, operator: str):
         """
         Adds a filter and an operator to the sequence. The Operator can be one of ['AND', 'OR', 'NONE']
         """
         self.__sequence.append((filter_, operator))
 
-    def filter(self, data_packages: List[DataPackage]) -> Tuple[List[int], List[int]]:
+    def filter(self, data_packages: List[DataPackage]) -> List[int]:
         """
         Filters a Dataset. Runs every data package through all filters and checks if the package matches all filter
         criteria.
         Args:
             data_packages (Dataset): Any Dataset
         Returns:
-            (Tuple[List[int], List[int]]): A tuple of the list of indexes which match the filter criteria and the list
-                                           of indexes which do not match the filter criteria
+            (List[int]): Depending on the parameter is_reversed:
+                         True: A list of indexes which match the filter criteria
+                         False: A list of indexes which do not match the filter criteria
         """
         self._reset()
         for index, data_package in enumerate(data_packages):
@@ -163,7 +169,10 @@ class FilterSequence:
             else:
                 self.__excluded.append(index)
             self.__res = True
-        return self.__included, self.__excluded
+        if self.__is_reversed:
+            return self.__excluded
+        else:
+            return self.__included
 
     def _execute(self, data_package):
         for filter_, operator in self.__sequence:
