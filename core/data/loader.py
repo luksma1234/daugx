@@ -8,7 +8,7 @@ from pathlib import Path
 from operator import itemgetter
 
 from daugx.utils.misc import string_to_list, is_header
-from daugx.core.loader.data import DataPackage
+from daugx.core.data.data import DataPackage
 import daugx.core.constants as c
 from daugx.utils.misc import img_dims, list_intersection
 from daugx.core.augmentation.annotations import Annotations
@@ -121,8 +121,8 @@ class Query:
             del self.keywords[custom_index]
             del self.__loading_queries[custom_index]
             # If multiple queries are listed as custom, the queries must be separated by a ','
-            # Keep in min that spaces are used to separate query keywords and the query-blocks.
-            # Therefore, a do not use a ', ' as separator.
+            # Keep in mind that spaces are used to separate query keywords and query-blocks.
+            # Therefore, do not use ', ' as separator.
             custom_queries = custom_query.split(",")
             for index, query in enumerate(custom_queries):
                 self.keywords.append(f"{c.QUERY_CUSTOM}_{index}")

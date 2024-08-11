@@ -99,13 +99,29 @@ FILTER_SEQUENCE_OPERATOR_OR = "OR"
 FILTER_SEQUENCE_OPERATOR_NONE = "NONE"
 
 
+# General Constants
+NODE_TYPE_STR = "type"
+NODE_NEXT_STR = "next"
+NODE_PARAMS_STR = "params"
 
+# Node Constants
+NODE_STR = "node"
+NODES_STR = "nodes"
 
+NODE_TYPE_INPUT = "input"
+NODE_TYPE_OUTPUT = "output"
+NODE_TYPE_MERGE = "merge"
+NODE_TYPE_SPLIT = "split"
+NODE_TYPE_FILTER = "filter"
+NODE_TYPE_AUGMENTATION = "augmentation"
 
+# config constants
 
-
-
-
+CONFIG_KEY_WORKFLOW = "workflow"
+CONFIG_KEY_DATASETS = "datasets"
+CONFIG_KEY_INIT = "init"
+CONFIG_KEY_FILTER = "filter"
+CONFIG_KEY_ID = "id"
 
 
 

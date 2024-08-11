@@ -15,10 +15,11 @@ class Executor:
         self.image_data: Union[List[np.ndarray], np.ndarray, None] = None
         self.annotation_data: Union[List[Annotations], Annotations, None] = None
 
-    def execute_path(self, path: Path):
+    def execute(self, path: Path, data: Union[List[np.ndarray], np.ndarray]):
         """
-        Executes a Path by executing all sequences.
+        Executes a Path with the given data.
         """
+
     def execute_single(self, sequence: Sequence):
         """
         Executes all Nodes inside that sequence

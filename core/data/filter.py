@@ -5,9 +5,7 @@ from daugx.core.data.data import DataPackage, Dataset
 
 
 class Filter:
-    def __init__(self, name: str, type_: str, specifier: str, operator: str, value: str):
-
-        self.name = name
+    def __init__(self, type_: str, specifier: str, operator: str, value: Union[int, float, None]):
         self.__type = type_
         self.__specifier = specifier
         self.__specifier_value = self.__specifier[c.FILTER_SPECIFIER_VALUE]
@@ -130,11 +128,21 @@ class Filter:
 
 
 class FilterSequence:
-    def __init__(self):
+    def __init__(self, id_: str, is_revered: bool = False):
+        self.__id = id_
+        self.__is_reversed = is_revered
         self.__sequence: List[tuple] = []
         self.__res: bool = True
         self.__included = []
         self.__excluded = []
+
+    @property
+    def id(self):
+        return self.__id
+
+    @property
+    def is_reversed(self):
+        return self.__is_reversed
 
     def add(self, filter_: Filter, operator: str):
         """
@@ -142,26 +150,29 @@ class FilterSequence:
         """
         self.__sequence.append((filter_, operator))
 
-    def filter(self, dataset: Dataset) -> Tuple[List[int], List[int]]:
+    def filter(self, data_packages: List[DataPackage]) -> List[int]:
         """
         Filters a Dataset. Runs every data package through all filters and checks if the package matches all filter
         criteria.
         Args:
-            dataset (Dataset): Any Dataset
+            data_packages (Dataset): Any Dataset
         Returns:
-            (Tuple[List[int], List[int]]): A tuple of the list of indexes which match the filter criteria and the list
-                                           of indexes which do not match the filter criteria
+            (List[int]): Depending on the parameter is_reversed:
+                         True: A list of indexes which match the filter criteria
+                         False: A list of indexes which do not match the filter criteria
         """
-        filter_set = dataset.data_packages
         self._reset()
-        for index, data_package in enumerate(filter_set):
+        for index, data_package in enumerate(data_packages):
             self._execute(data_package)
             if self.__res:
                 self.__included.append(index)
             else:
                 self.__excluded.append(index)
-            self._reset()
-        return self.__included, self.__excluded
+            self.__res = True
+        if self.__is_reversed:
+            return self.__excluded
+        else:
+            return self.__included
 
     def _execute(self, data_package):
         for filter_, operator in self.__sequence:

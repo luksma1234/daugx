@@ -4,7 +4,6 @@ This module contains the Sequence class, which is a container for a list of elem
 
 from typing import List
 from .node import Node
-from daugx.core.augmentation.filter import Filter
 from .sequence import Sequence
 
 
@@ -19,7 +18,7 @@ class Path:
         self.next_node = None
 
         # filter may consist of a list of all elements that are affected by this filter.
-        self.filter: List[Filter] = []
+        self.filter: List[str] = []
         self.is_complete = False
 
     def add_sequence(self, sequence, next_node):

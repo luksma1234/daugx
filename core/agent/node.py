@@ -6,7 +6,7 @@ import numpy as np
 
 
 class Node:
-    def __init__(self, id_: int):
+    def __init__(self, id_: str):
         self.next = None
         self.inflation = None
         self.id = id_
@@ -16,8 +16,8 @@ class Node:
 
 
 class InputNode(Node):
-    def __init__(self, id: int, n_data: int, path: str, data_type: str):
-        super().__init__(id)
+    def __init__(self, id_: str, n_data: int, path: str, data_type: str):
+        super().__init__(id_)
         self.inflation = 1
         self.n_data = n_data
         self.path = path
@@ -25,20 +25,20 @@ class InputNode(Node):
 
 
 class OutputNode(Node):
-    def __init__(self, id: int):
-        super().__init__(id)
+    def __init__(self, id_: str):
+        super().__init__(id_)
         self.inflation = 1
 
 
 class MergeNode(Node):
-    def __init__(self, id: int):
-        super().__init__(id)
+    def __init__(self, id_: str):
+        super().__init__(id_)
         self.inflation = 1
 
 
 class DividingNode(Node):
-    def __init__(self, id: int, split_shares: List[float]):
-        super().__init__(id)
+    def __init__(self, id_: str, split_shares: List[float]):
+        super().__init__(id_)
         self.split_shares = split_shares
         self.inflation = 1
         # The split index is set when Node is implemented into path. It defines what split is used for this path.
@@ -52,8 +52,8 @@ class DividingNode(Node):
 
 
 class SplitNode(DividingNode):
-    def __init__(self, id: int, split_shares: List[float]):
-        super().__init__(id, split_shares)
+    def __init__(self, id_: str, split_shares: List[float]):
+        super().__init__(id_, split_shares)
         self.split_shares = split_shares
         self.inflation = 1
         # The split index is set when Node is implemented into path. It defines what split is used for this path.
@@ -63,8 +63,8 @@ class SplitNode(DividingNode):
 
 
 class FilterNode(DividingNode):
-    def __init__(self, id: int, split_shares: List[float]):
-        super().__init__(id, split_shares)
+    def __init__(self, id_: str, split_shares: List[float], filter_id: str):
+        super().__init__(id_, split_shares)
         self.split_shares = split_shares
         self.inflation = 1
         # The split index is set when Node is implemented into path. It defines what split is used for this path.
@@ -76,8 +76,8 @@ class FilterNode(DividingNode):
 class AugmentationNode(Node):
     def __init__(
             self,
+            id_: int,
             method: str,
-            id: int,
             p: float = 1,
             **kwargs
     ):
@@ -88,7 +88,7 @@ class AugmentationNode(Node):
             params: dict - The parameters of the augmentation.
             execution_probability: float - The probability of the augmentation being executed.
         """
-        super().__init__(id)
+        super().__init__(id_)
         self.method = method
         self.p = p
 
@@ -96,11 +96,11 @@ class AugmentationNode(Node):
         try:
             self.augmentation = getattr(augmentations, self.method)(**kwargs)
         except AttributeError:
-            raise UnknownAugmentationError(f"The augmentation method '{self.method}' is unknown. Please make sure your"
-                                           f"clients version matches with the library version.")
+            raise AttributeError(f"The augmentation method '{self.method}' is unknown. Please make sure your"
+                                 f"clients version matches with the library version.")
         except TypeError:
-            raise UnknownArgumentError(f"One or more arguments of '{kwargs}' are not allowed for augmentation of "
-                                       f"method '{self.method}'")
+            raise TypeError(f"One or more arguments of '{kwargs}' are not allowed for augmentation of "
+                            f"method '{self.method}'")
         except Exception as e:
             raise e
 
