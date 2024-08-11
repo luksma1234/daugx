@@ -5,7 +5,7 @@ from daugx.core.data.data import DataPackage, Dataset
 
 
 class Filter:
-    def __init__(self, type_: str, specifier: str, operator: str, value: Union[int, float, None]):
+    def __init__(self, type_: str, specifier: dict, operator: str, value: Union[int, float, None]):
         self.__type = type_
         self.__specifier = specifier
         self.__specifier_value = self.__specifier[c.FILTER_SPECIFIER_VALUE]
@@ -89,15 +89,18 @@ class Filter:
             case c.FILTER_SPECIFIER_CATEGORY_NAME:
                 if isinstance(data_if_name, list) or isinstance(data_if_name, int):
                     self.__comparator = data_if_name
-                self.__comparator = data_if_name(self.__specifier_value)
+                else:
+                    self.__comparator = data_if_name(self.__specifier_value)
             case c.FILTER_SPECIFIER_CATEGORY_ID:
                 if isinstance(data_if_id, list) or isinstance(data_if_name, int):
                     self.__comparator = data_if_id
-                self.__comparator = data_if_id(self.__specifier_value)
+                else:
+                    self.__comparator = data_if_id(self.__specifier_value)
             case c.FILTER_SPECIFIER_CATEGORY_ANY:
                 if isinstance(data_if_any, list) or isinstance(data_if_name, int):
                     self.__comparator = data_if_any
-                self.__comparator = data_if_any()
+                else:
+                    self.__comparator = data_if_any()
         return self._match_operator()
 
     def _match_operator(self) -> bool:
@@ -120,11 +123,17 @@ class Filter:
             case c.FILTER_OPERATOR_EXISTS:
                 if not isinstance(self.__comparator, list):
                     return True
-                return self.__value in self.__comparator
+                if self.__specifier_category != c.FILTER_SPECIFIER_CATEGORY_ANY:
+                    return self.__specifier_value in self.__comparator
+                else:
+                    return len(self.__comparator) > 0
             case c.FILTER_OPERATOR_NOT_EXISTS:
                 if not isinstance(self.__comparator, list):
                     return True
-                return self.__value not in self.__comparator
+                if self.__specifier_category != c.FILTER_SPECIFIER_CATEGORY_ANY:
+                    return self.__specifier_value not in self.__comparator
+                else:
+                    return len(self.__comparator) == 0
 
 
 class FilterSequence:
@@ -144,11 +153,11 @@ class FilterSequence:
     def is_reversed(self):
         return self.__is_reversed
 
-    def add(self, filter_: Filter, operator: str):
+    def add(self, filter_: Filter, chain_operator: str):
         """
         Adds a filter and an operator to the sequence. The Operator can be one of ['AND', 'OR', 'NONE']
         """
-        self.__sequence.append((filter_, operator))
+        self.__sequence.append((filter_, chain_operator))
 
     def filter(self, data_packages: List[DataPackage]) -> List[int]:
         """

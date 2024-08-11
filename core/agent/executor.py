@@ -12,13 +12,13 @@ import numpy as np
 
 class Executor:
     def __init__(self):
-        self.image_data: Union[List[np.ndarray], np.ndarray, None] = None
-        self.annotation_data: Union[List[Annotations], Annotations, None] = None
+        pass
 
     def execute(self, path: Path, data: Union[List[np.ndarray], np.ndarray]):
         """
         Executes a Path with the given data.
         """
+
 
     def execute_single(self, sequence: Sequence):
         """

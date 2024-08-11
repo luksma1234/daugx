@@ -107,6 +107,8 @@ FILTER_DICT_OPERATOR = "operator"
 FILTER_DICT_VALUE = "value"
 FILTER_DICT_CHAIN_OPERATOR = "chain_operator"
 
+FILTER_BACKGROUND_ID = "__BACKGROUND__"
+
 # General Constants
 NODE_TYPE_STR = "type"
 NODE_NEXT_STR = "next"
@@ -124,12 +126,17 @@ NODE_TYPE_FILTER = "filter"
 NODE_TYPE_AUGMENTATION = "augmentation"
 
 # config constants
-
 CONFIG_KEY_WORKFLOW = "workflow"
 CONFIG_KEY_DATASETS = "datasets"
 CONFIG_KEY_INIT = "init"
 CONFIG_KEY_FILTER = "filter"
 CONFIG_KEY_ID = "id"
+
+# label options constants
+LABEL_OPTION_ID = "id"
+LABEL_OPTION_NAME = "name"
+LABEL_OPTION_FILTER_LIST = "filter_list"
+LABEL_OPTION_ALIAS_ASSIGNMENT = "alias_assignment"
 
 
 
