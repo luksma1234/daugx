@@ -16,8 +16,6 @@ class Path:
         self.exe_prob_sum = None
         self.sequences = []
         self.next_node = None
-
-        # filter may consist of a list of all elements that are affected by this filter.
         self.filter: List[str] = []
         self.is_complete = False
 

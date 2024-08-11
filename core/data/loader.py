@@ -3,14 +3,14 @@ import json
 import csv
 import re
 
-from typing import Tuple, List, Union, Dict
+from typing import Tuple, List, Union, Dict, Optional
 from pathlib import Path
 from operator import itemgetter
 
 from daugx.utils.misc import string_to_list, is_header
 from daugx.core.data.data import DataPackage
 import daugx.core.constants as c
-from daugx.utils.misc import img_dims, list_intersection
+from daugx.utils.misc import img_dims, list_intersection, is_in_dict
 from daugx.core.augmentation.annotations import Annotations
 
 import xmltodict
@@ -214,7 +214,8 @@ class InitialLoader:
             query: str,
             annot_mode: str,
             annot_file_type: str,
-            img_file_type: str
+            img_file_type: str,
+            label_options: Optional[dict]
     ):
         """
         Args:
@@ -224,6 +225,22 @@ class InitialLoader:
             annot_mode: Load mode for annotations. Can be 'onefile' or 'directory'.
             annot_file_type (str): File type for annotations. Accepted File types are: json, yaml, xml, txt, csv
             img_file_type (str): File type for images. Accepted file types are: jpg, png
+            label_options (Optional[dict]): Filter for labels. Will only load annotation which is found in filter.
+                                           Dict schema:
+                                 {
+                                    "id":                               | Applies options on ids
+                                        {
+                                            filter_list: <list>,        | List of labels to be kept
+                                            alias_assignment: <dict>    | Dictionary of alias for labels
+                                                                        | key is original label, value the new label
+                                        }
+                                    "name":                             | Applies options on names
+                                        {
+                                            filter_list: <list>,
+                                            alias_assignment: <dict>
+
+                                        }
+                                 }
         """
         self.img_dir_path = img_dir_path
         self.annot_path = annot_path
@@ -236,6 +253,7 @@ class InitialLoader:
         if self.boundary_type == c.BOUNDARY_TYPE_BBOX:
             self.bbox_keywords = self._extract_bbox_keywords()
             self.bbox_strategy = self._get_bbox_strategy(self.bbox_keywords)
+        self.__label_options = label_options
 
     def load(self) -> List[DataPackage]:
         """
@@ -386,6 +404,14 @@ class InitialLoader:
                 feature = self._get_item_by_query(loading_query, self.current_working_file)
                 if feature is None:
                     break
+                if self.__label_options is not None:
+                    is_kept = True
+                    if keyword == c.QUERY_LABEL_NAME:
+                        feature, is_kept = self._apply_label_options(feature, apply_to_name=True)
+                    elif keyword == c.QUERY_LABEL_ID:
+                        feature, is_kept = self._apply_label_options(feature, apply_to_id=True)
+                    if not is_kept:
+                        break
                 item_dict[keyword] = feature
             else:
                 # ups indexes with failed as false only if loop runs successfully
@@ -673,3 +699,20 @@ class InitialLoader:
         keypoint_string = keypoint_string.strip("[]")
         keypoint_string = keypoint_string.replace(" ", "")
         return np.array(keypoint_string.split(","))
+
+    def _apply_label_options(self, value: str, apply_to_name=False, apply_to_id=False) -> Tuple[Optional[str], bool]:
+        if apply_to_name:
+            options = self.__label_options[c.LABEL_OPTION_NAME]
+        elif apply_to_id:
+            options = self.__label_options[c.LABEL_OPTION_ID]
+        else:
+            raise ValueError("Unable to apply label options on None.")
+        if is_in_dict(c.LABEL_OPTION_FILTER_LIST, options):
+            if value not in options[c.LABEL_OPTION_FILTER_LIST]:
+                return None, False
+        if is_in_dict(c.LABEL_OPTION_ALIAS_ASSIGNMENT, options):
+            if is_in_dict(value, options[c.LABEL_OPTION_ALIAS_ASSIGNMENT]):
+                value = options[c.LABEL_OPTION_ALIAS_ASSIGNMENT][value]
+        return value, True
+
+
