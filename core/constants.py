@@ -131,6 +131,7 @@ CONFIG_KEY_DATASETS = "datasets"
 CONFIG_KEY_INIT = "init"
 CONFIG_KEY_FILTER = "filter"
 CONFIG_KEY_ID = "id"
+CONFIG_KEY_BACKGROUND_PERCENTAGE = "background_percentage"
 
 # label options constants
 LABEL_OPTION_ID = "id"

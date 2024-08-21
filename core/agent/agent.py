@@ -1,7 +1,7 @@
 from typing import Tuple, List
 import warnings
 
-from daugx.utils.misc import load_json, get_seed, set_seed, is_api_key, get_config_from_api
+from daugx.utils.misc import load_json, get_seed, set_seed, is_api_key, get_config_from_api, is_in_dict
 from daugx.core.agent.workflow import Workflow
 from daugx.core.data.data import Dataset, DataPackage
 from daugx.core.data.loader import InitialLoader
@@ -81,7 +81,12 @@ class Agent:
             initial_loader = InitialLoader(**dataset[c.CONFIG_KEY_INIT])
             data_packages = initial_loader.load()
             filters = self._init_filters(dataset[c.CONFIG_KEY_FILTER])
-            self.datasets.append(Dataset(dataset[c.CONFIG_KEY_ID], data_packages, filters))
+            if is_in_dict(c.CONFIG_KEY_BACKGROUND_PERCENTAGE, dataset):
+                self.datasets.append(Dataset(
+                    dataset[c.CONFIG_KEY_ID], data_packages, filters, dataset[c.CONFIG_KEY_BACKGROUND_PERCENTAGE])
+                )
+            else:
+                self.datasets.append(Dataset(dataset[c.CONFIG_KEY_ID], data_packages, filters, None))
 
     @staticmethod
     def _init_filters(filter_list: List[dict]) -> List[FilterSequence]:

@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from daugx.core import constants as c
 from daugx.utils.node_utils import is_output, is_dividing, is_inflationary, config_to_node
-from daugx.core.agent.path import Path
+from daugx.core.agent.option import Option
 from daugx.core.agent.node import *
 from daugx.core.agent.sequence import Sequence
 
@@ -17,7 +17,7 @@ class Workflow:
 
         self.__nodes: List[Node] = []
         self.__sequences: List[Sequence] = []
-        self.__paths: List[Path] = []
+        self.__paths: List[Option] = []
         self._build()
 
     @property
@@ -236,7 +236,7 @@ class Workflow:
             self._group_incomplete_paths()
             self._build_incomplete_paths()
 
-    def _get_incomplete_paths(self) -> List[Path]:
+    def _get_incomplete_paths(self) -> List[Option]:
         return [path for path in self.__paths if not path.is_complete]
 
     def _build_ipt_paths(self) -> None:
@@ -246,11 +246,11 @@ class Workflow:
         """
         input_sequences = [sequence for sequence in self.__sequences if isinstance(sequence.get_start_node(), InputNode)]
         for input_sequence in input_sequences:
-            input_path = Path()
+            input_path = Option()
             input_path.add_sequence(input_sequence, input_sequence.next_node)
             self._build_linear_path(input_path)
 
-    def _build_linear_path(self, path: Path) -> None:
+    def _build_linear_path(self, path: Option) -> None:
         """
         Builds a path from an entry path. A path stops on:
         - next_node is None -> Path is completed
@@ -298,7 +298,7 @@ class Workflow:
         """
         for group in groups.values():
             next_node = group[0].next_node
-            new_path = Path()
+            new_path = Option()
             new_path.add_sequence(group, next_node)
             self.__paths.append(new_path)
 
@@ -314,12 +314,12 @@ class Workflow:
             if not path.is_complete and path.next_node.inflation == 1:
                 self._build_linear_path(path)
 
-    def _get_path(self) -> Path:
+    def _get_path(self) -> Option:
         """
         Gets a path from a list of paths. Paths are sorted by their execution probability. Chooses the method for
         getting paths by the amount of paths available.
         Returns:
-            (Path): Chosen path
+            (Option): Chosen path
         """
         prob = get_random()
         if len(self.__paths) > 100:
@@ -350,12 +350,12 @@ class Workflow:
         """
         return self._choose_path_by_prob(0, False, prob)
 
-    def _choose_path_by_prob(self, start_index: int, inverted: bool, prob: float) -> Path:
+    def _choose_path_by_prob(self, start_index: int, inverted: bool, prob: float) -> Option:
         """
         Chooses one path by a given probability
 
         Returns:
-            (Path): Chosen path
+            (Option): Chosen path
         """
         cur_prob = self.__paths[start_index].exe_prob_sum
         if inverted:

@@ -154,6 +154,10 @@ class Mosaic(MITransform):
         self.unify_width = None
         self.unify_height = None
 
+    @property
+    def inflation(self):
+        return 0.25
+
     def _preprocess(self):
         assert len(self.image_list) == 4, (f"Mosaic Augmentation needs exactly 4 images to stitch together. "
                                            f"Found {len(self.image_list)}")
@@ -255,6 +259,10 @@ class MixUp(MITransform):
         self.lam = lam
 
         assert 0.4 <= self.lam <= 0.6, f"Lambda parameter for MixUp must be in range 0.4 - 0.6. Found {self.lam}."
+
+    @property
+    def inflation(self):
+        return 0.5
 
     def _preprocess(self) -> None:
         assert len(self.image_list) == 2, (f"MixUp Augmentation needs exactly 2 images for blending. "
