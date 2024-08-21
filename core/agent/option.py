@@ -7,7 +7,7 @@ from .node import Node
 from .sequence import Sequence
 
 
-class Path:
+class Option:
     def __init__(self):
         self.nodes: List[List[Node]] = []
         self.inflation = None

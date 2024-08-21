@@ -2,19 +2,17 @@ from typing import List, Union
 
 
 from daugx.core.agent.sequence import Sequence
-from daugx.core.agent.path import Path
+from daugx.core.agent.option import Option
 from daugx.core.augmentation.annotations import Annotations
 
 import numpy as np
-
-# TODO: How are the sequences embedded inside the paths? How do I know when to execute in parallel? Are there sub paths?
 
 
 class Executor:
     def __init__(self):
         pass
 
-    def execute(self, path: Path, data: Union[List[np.ndarray], np.ndarray]):
+    def execute(self, path: Option, data: Union[List[np.ndarray], np.ndarray]):
         """
         Executes a Path with the given data.
         """

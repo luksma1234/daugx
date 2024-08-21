@@ -90,7 +90,7 @@ class Dataset:
         elif isinstance(filter_, list):
             if not is_in_dict(str(sorted(filter_)), self.__filter_indexes):
                 self._combine_filters(filter_)
-            return self.data_packages[fetch_by_prob(self.__filter_indexes[str(filter_)], rand)]
+            return self.data_packages[fetch_by_prob(self.__filter_indexes[str(filter_)], rand)].data
 
     def _init_filters(self, filters: List[FilterSequence]):
         self._init_background_filter()
