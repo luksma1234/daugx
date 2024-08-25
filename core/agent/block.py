@@ -1,8 +1,11 @@
+from typing import Tuple, Optional, Union
 from daugx.utils import *
 from typing import List
 from daugx.core.augmentation import augmentations
+from daugx.core.augmentation.annotations import Annotations
 from daugx.utils import is_executed
 import numpy as np
+from daugx.core.augmentation.transforms import IOTransform, SITransform, MITransform
 
 
 class Node:
@@ -13,6 +16,12 @@ class Node:
 
     def set_next(self, next_):
         self.next = next_
+
+    def execute(self, image: np.ndarray, annotations: Annotations) -> Tuple[np.ndarray, Optional[Annotations]]:
+        """
+        Executes the augmentation.
+        """
+        return image, annotations
 
 
 class InputNode(Node):
@@ -37,7 +46,6 @@ class DividingNode(Node):
     def __init__(self, id_: str, split_shares: List[float]):
         super().__init__(id_)
         self.split_shares = split_shares
-        assert sum(split_shares) == 1
         # The split index is set when Node is implemented into path. It defines what split is used for this path.
         self.split_idx = None
         # The split index also defines the execution probability of this node.
@@ -51,6 +59,7 @@ class DividingNode(Node):
 class SplitNode(DividingNode):
     def __init__(self, id_: str, split_shares: List[float]):
         super().__init__(id_, split_shares)
+        self.split_shares = split_shares
         # The split index is set when Node is implemented into path. It defines what split is used for this path.
         self.split_idx = None
         # The split index also defines the execution probability of this node.
@@ -61,7 +70,6 @@ class FilterNode(DividingNode):
     def __init__(self, id_: str, split_shares: List[float], filter_id: str):
         super().__init__(id_, split_shares)
         self.split_shares = split_shares
-        self.inflation = 1
         # The split index is set when Node is implemented into path. It defines what split is used for this path.
         self.split_idx = None
         # The split index also defines the execution probability of this node.
@@ -83,7 +91,6 @@ class AugmentationNode(Node):
             params (dict):  - The parameters of the augmentation.
             execution_probability (float): The probability of the augmentation being executed.
         """
-
         super().__init__(id_)
         self.class_ = class_
         self.p = p
@@ -126,12 +133,10 @@ class AugmentationNode(Node):
         else:
             self.output_id = self.input[0]
 
-    def execute(self, data: np.ndarray) -> np.ndarray:
+    def execute(self, image: Union[np.ndarray, List[np.ndarray]], annotations: Union[Annotations, List[Annotations]]) \
+            -> Tuple[np.ndarray, Optional[Annotations]]:
         """
-        Executes the augmentation on the given data.
-        Args:
-            data: np.ndarray - The data to be augmented.
-
-        Returns: np.ndarray - The augmented data.
+        Executes the augmentation.
         """
-        return self.augmentation.execute(data)
+        image, annotations = self.augmentation.apply(image, annotations)
+        return image, annotations
