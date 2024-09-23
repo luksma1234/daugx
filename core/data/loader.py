@@ -43,7 +43,7 @@ class Query:
                                 ... /filename/ reads the name of the file
 
                                 As an example, the query string for the COCO Dataset would be:
-                                'LABELID {annotations}[n][category_id] IMAGEID {annotations}[n]{image_id}
+                                'LABELID {annotations}[n]{category_id} IMAGEID {annotations}[n]{image_id}
                                 XMIN {annotations}[n]{bbox}[0] YMIN {annotations}[n]{bbox}[1] WIDTH
                                 {annotations}[n]{bbox}[2] HEIGHT {annotations}[n]{bbox}[3]'
         """
@@ -215,7 +215,7 @@ class InitialLoader:
             annot_mode: str,
             annot_file_type: str,
             img_file_type: str,
-            label_options: Optional[dict]
+            label_options: Optional[dict] = None
     ):
         """
         Args:
@@ -714,5 +714,3 @@ class InitialLoader:
             if is_in_dict(value, options[c.LABEL_OPTION_ALIAS_ASSIGNMENT]):
                 value = options[c.LABEL_OPTION_ALIAS_ASSIGNMENT][value]
         return value, True
-
-

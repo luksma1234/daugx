@@ -1,0 +1,101 @@
+{
+  "blocks": [
+    {
+      "id": "1",
+      "type": "input",
+      "prev": [],
+      "next": ["4"],
+      "shares": [1],
+      "params": {
+        "dataset": "abc",
+        "n_total_data": 1500,
+        "filters": []
+      }
+    },
+    {
+      "id": "2",
+      "type": "input",
+      "prev": [],
+      "next": ["5"],
+      "shares": [1],
+      "params": {
+        "dataset": "def",
+        "n_total_data": 3000,
+        "filters": []
+      }
+    },
+    {
+      "id": "3",
+      "type": "input",
+      "prev": [],
+      "next": ["6"],
+      "shares": [1],
+      "params": {
+        "dataset": "ghi",
+        "n_total_data": 6000,
+        "filters": []
+      }
+    },
+    {
+      "id": "4",
+      "type": "augment",
+      "prev": ["1"],
+      "next": ["7"],
+      "shares": [1],
+      "params": {
+        "exe_prob": 0.5,
+        "class_name": "Rotate",
+        "angle": 45
+      }
+    },
+    {
+      "id": "5",
+      "type": "augment",
+      "prev": ["2"],
+      "next": ["7", "8"],
+      "shares": [0.9, 0.1],
+      "params": {
+        "exe_prob": 0.5,
+        "class_name": "Shift",
+        "x_shift": 10,
+        "y_shift": 20
+      }
+    },
+    {
+      "id": "6",
+      "type": "augment",
+      "prev": ["3", "5"],
+      "next": ["8"],
+      "shares": [1],
+      "params": {
+        "exe_prob": 0.5,
+        "class_name": "Scale",
+        "x_scale": 0.5,
+        "y_scale": 2
+      }
+    },
+    {
+      "id": "7",
+      "type": "augment",
+      "prev": ["4", "5"],
+      "next": ["8"],
+      "shares": [1],
+      "params": {
+        "exe_prob": 1,
+        "class_name": "Mosaic"
+      }
+    },
+    {
+      "id": "8",
+      "type": "augment",
+      "prev": ["7", "6"],
+      "next": [],
+      "shares": [1],
+      "params": {
+        "exe_prob": 1,
+        "class_name": "MixUp",
+        "lam": 0.5
+      }
+    }
+  ]
+}

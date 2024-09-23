@@ -11,6 +11,7 @@ from .transforms import (
     IOTransform
 )
 
+# TODO: This shit needs documentation lol
 
 class Shift(SITransform):
     def __init__(
@@ -153,10 +154,8 @@ class Mosaic(MITransform):
         self.mode = mode
         self.unify_width = None
         self.unify_height = None
+        self.inflation = 0.25
 
-    @property
-    def inflation(self):
-        return 0.25
 
     def _preprocess(self):
         assert len(self.image_list) == 4, (f"Mosaic Augmentation needs exactly 4 images to stitch together. "
@@ -257,12 +256,9 @@ class MixUp(MITransform):
         super().__init__()
         # lambda parameter
         self.lam = lam
+        self.inflation = 0.5
 
         assert 0.4 <= self.lam <= 0.6, f"Lambda parameter for MixUp must be in range 0.4 - 0.6. Found {self.lam}."
-
-    @property
-    def inflation(self):
-        return 0.5
 
     def _preprocess(self) -> None:
         assert len(self.image_list) == 2, (f"MixUp Augmentation needs exactly 2 images for blending. "
@@ -278,16 +274,3 @@ class MixUp(MITransform):
         self.annots = self.annots_list[0]
         for annots in self.annots_list[1]:
             self.annots.annots.append(annots)
-
-
-#
-#
-# def transform():
-#     perspective transform
-#     pass
-#
-#
-# def cutout():
-#     cutout is essentialy the same as a dropout - therefore maybe not necessary
-#     pass
-#

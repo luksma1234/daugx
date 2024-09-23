@@ -1,7 +1,7 @@
 from typing import Callable, List, Union, Tuple
 
 from daugx.core import constants as c
-from daugx.core.data.data import DataPackage, Dataset
+from daugx.core.data.meta_inf import MetaInf
 
 
 class Filter:
@@ -16,16 +16,15 @@ class Filter:
         # __comparator is compared to __value
         self.__comparator = None
 
-    def is_filtered(self, data_package: DataPackage) -> bool:
+    def is_filtered(self, meta_inf: MetaInf) -> bool:
         """
         Matches the filter type and parses resulting data to specifier.
         Filter result is propagated back upwards.
         Args:
-            data_package (DataPackage): Any DataPackage
+            meta_inf (MetaInf): Meta Information of a DataPackage
         Returns:
             (bool): If data_package matches filter criteria
         """
-        meta_inf = data_package.meta_inf
         match self.__type:
             case c.FILTER_TYPE_MIN_AREA:
                 return self._match_specifier(
@@ -159,20 +158,20 @@ class FilterSequence:
         """
         self.__sequence.append((filter_, chain_operator))
 
-    def filter(self, data_packages: List[DataPackage]) -> List[int]:
+    def filter(self, meta_inf_list: List[MetaInf]) -> List[int]:
         """
-        Filters a Dataset. Runs every data package through all filters and checks if the package matches all filter
+        Filters a list of MetaInf. Runs every metaInf through all filters and checks if the package matches all filter
         criteria.
         Args:
-            data_packages (Dataset): Any Dataset
+            meta_inf_list (List[MetaInf]): Any list of meta information
         Returns:
             (List[int]): Depending on the parameter is_reversed:
                          True: A list of indexes which match the filter criteria
                          False: A list of indexes which do not match the filter criteria
         """
         self._reset()
-        for index, data_package in enumerate(data_packages):
-            self._execute(data_package)
+        for index, meta_inf in enumerate(meta_inf_list):
+            self._execute(meta_inf)
             if self.__res:
                 self.__included.append(index)
             else:
@@ -183,9 +182,9 @@ class FilterSequence:
         else:
             return self.__included
 
-    def _execute(self, data_package):
+    def _execute(self, meta_inf):
         for filter_, operator in self.__sequence:
-            self.__res = filter_.is_filtered(data_package)
+            self.__res = filter_.is_filtered(meta_inf)
             if not self._is_continued(operator):
                 break
 

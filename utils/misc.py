@@ -41,6 +41,9 @@ def is_executed(execution_probability: float) -> bool:
 
 
 def fetch_by_prob_list(value_list: list, probability_list: List[float]):
+    """
+    Fetches values from a list with different probabilities.
+    """
     rand = get_random()
     assert len(value_list) == len(probability_list), "Ambiguous value to probability relation."
     prob_sum = 0
@@ -53,6 +56,9 @@ def fetch_by_prob_list(value_list: list, probability_list: List[float]):
 
 
 def fetch_by_prob(value_list: list, probability: float):
+    """
+    Fetches values with from a list with the same probability.
+    """
     return value_list[int(probability * len(value_list))]
 
 

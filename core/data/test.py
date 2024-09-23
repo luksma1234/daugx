@@ -11,7 +11,7 @@ coco_loader = InitialLoader(
     query=query,
     annot_mode="onefile",
     annot_file_type="csv",
-    img_file_type="jpg"
+    img_file_type="jpg",
 )
 coco_data = coco_loader.load()
 print(len(coco_data), coco_data[15:20])

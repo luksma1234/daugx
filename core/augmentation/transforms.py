@@ -13,6 +13,7 @@ class SITransform(ABC):
     def __init__(self):
         self.image = None
         self.annots = None
+        self.inflation = 1
 
     def apply(
             self,

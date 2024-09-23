@@ -113,6 +113,10 @@ FILTER_BACKGROUND_ID = "__BACKGROUND__"
 NODE_TYPE_STR = "type"
 NODE_NEXT_STR = "next"
 NODE_PARAMS_STR = "params"
+NODE_PREV_STR = "prev"
+NODE_ID_STR = "id"
+NODE_SHARE_STR = "shares"
+NODE_INFLATION_STR = "inflation"
 
 # Node Constants
 NODE_STR = "node"
@@ -123,7 +127,8 @@ NODE_TYPE_OUTPUT = "output"
 NODE_TYPE_MERGE = "merge"
 NODE_TYPE_SPLIT = "split"
 NODE_TYPE_FILTER = "filter"
-NODE_TYPE_AUGMENTATION = "augmentation"
+NODE_TYPE_AUGMENT = "augment"
+NODE_TYPE_DIVIDE = "divide"
 
 # config constants
 CONFIG_KEY_WORKFLOW = "workflow"

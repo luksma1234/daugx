@@ -1,7 +1,7 @@
 from typing import List, Union
 
-
 from daugx.core.agent.sequence import Sequence
+from daugx.core.agent.workflow import Workflow
 from daugx.core.agent.option import Option
 from daugx.core.augmentation.annotations import Annotations
 
@@ -9,23 +9,23 @@ import numpy as np
 
 
 class Executor:
-    def __init__(self):
-        pass
+    def __init__(self, workflow: Workflow):
+        self.workflow = Workflow
 
-    def execute(self, path: Option, data: Union[List[np.ndarray], np.ndarray]):
+    def execute(
+            self,
+            image: Union[np.ndarray, List[np.ndarray]],
+            annotations: Union[Annotations, List[Annotations]]
+    ):
         """
-        Executes a Path with the given data.
+        Executes one Option. All Nodes inside that Option are executed sequentially.
         """
+        blocks = self.workflow.fetch
 
-
-    def execute_single(self, sequence: Sequence):
+    def __execute_node(self, sequence: Sequence):
         """
         Executes all Nodes inside that sequence
         """
         pass
 
-    def execute_parallel(self, sequences: List[Sequence]):
-        """
-        Executes all elements in the sequences list in parallel. Starts a new process for each sequence.
-        """
-        pass
+

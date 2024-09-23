@@ -95,7 +95,7 @@ class Dataset:
     def _init_filters(self, filters: List[FilterSequence]):
         self._init_background_filter()
         for sequence in filters:
-            self.__filter_indexes[sequence.id] = sequence.filter(self.data_packages)
+            self.__filter_indexes[sequence.id] = sequence.filter([data_package.meta_inf for data_package in self.data_packages])
 
     def _combine_filters(self, filters: List[str]):
         filter_set = set(filters[0])
@@ -114,4 +114,4 @@ class Dataset:
            c.FILTER_OPERATOR_NOT_EXISTS,
            None
         ), c.FILTER_SEQUENCE_OPERATOR_NONE)
-        self.__background_indexes = self.__background_filter.filter(self.data_packages)
+        self.__background_indexes = self.__background_filter.filter([data_package.meta_inf for data_package in self.data_packages])
