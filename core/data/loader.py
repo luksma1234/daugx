@@ -25,6 +25,7 @@ class Query:
 
     def __init__(self, mode: str, query_string: str):
         """
+        If a csv file contains a header - Make sure to attend each element by its header key NOT by its index.
         Args:
             mode (str): one of 'directory' or 'onefile' - specifies the base structure of the data
             query_string (str): the query string in the format '<Keyword> <Loading Query> ...'
@@ -43,7 +44,7 @@ class Query:
                                 ... /filename/ reads the name of the file
 
                                 As an example, the query string for the COCO Dataset would be:
-                                'LABELID {annotations}[n][category_id] IMAGEID {annotations}[n]{image_id}
+                                'LABELID {annotations}[n]{category_id} IMAGEID {annotations}[n]{image_id}
                                 XMIN {annotations}[n]{bbox}[0] YMIN {annotations}[n]{bbox}[1] WIDTH
                                 {annotations}[n]{bbox}[2] HEIGHT {annotations}[n]{bbox}[3]'
         """
@@ -145,6 +146,7 @@ class Query:
             self._fail_counter += 1
             if self._fail_counter == len(self.indexes):
                 self.__indexes = None
+                self._fail_counter = 0
                 return
             self.__indexes[-self._fail_counter:] = [0] * self._fail_counter
             self.__indexes[-self._fail_counter - 1] += 1
@@ -209,13 +211,14 @@ class InitialLoader:
     """
     def __init__(
             self,
+            gen: np.random.Generator,
             img_dir_path: str,
             annot_path: str,
             query: str,
             annot_mode: str,
             annot_file_type: str,
-            img_file_type: str,
-            label_options: Optional[dict]
+            img_file_types: List[str],
+            label_options: Optional[dict] = None
     ):
         """
         Args:
@@ -224,7 +227,7 @@ class InitialLoader:
             query (str): Loading Query
             annot_mode: Load mode for annotations. Can be 'onefile' or 'directory'.
             annot_file_type (str): File type for annotations. Accepted File types are: json, yaml, xml, txt, csv
-            img_file_type (str): File type for images. Accepted file types are: jpg, png
+            img_file_types (str): File type for images. Accepted file types are: jpg, png
             label_options (Optional[dict]): Filter for labels. Will only load annotation which is found in filter.
                                            Dict schema:
                                  {
@@ -242,12 +245,13 @@ class InitialLoader:
                                         }
                                  }
         """
+        self.__gen = gen
         self.img_dir_path = img_dir_path
         self.annot_path = annot_path
         self.annot_mode = annot_mode
         self.query = Query(query_string=query, mode=self.annot_mode)
         self.annot_file_type = annot_file_type
-        self.img_file_type = img_file_type
+        self.img_file_types = img_file_types
         self.boundary_type = self._identify_boundary_type()
         self.__current_working_file = None
         if self.boundary_type == c.BOUNDARY_TYPE_BBOX:
@@ -282,7 +286,7 @@ class InitialLoader:
             data = []
             for path in os.listdir(self.annot_path):
                 if path.endswith(self.annot_file_type):
-                    data.extend(self._load_from_query(path))
+                    data.extend(self._load_from_query(os.path.join(self.annot_path, path)))
                     self.query.reset_indexes()
         elif self.query.mode == c.QUERY_MODE_ONE_FILE:
             data = self._load_from_query(self.annot_path)
@@ -407,6 +411,7 @@ class InitialLoader:
                 if self.__label_options is not None:
                     is_kept = True
                     if keyword == c.QUERY_LABEL_NAME:
+                        # TODO: Why is feature yellow?
                         feature, is_kept = self._apply_label_options(feature, apply_to_name=True)
                     elif keyword == c.QUERY_LABEL_ID:
                         feature, is_kept = self._apply_label_options(feature, apply_to_id=True)
@@ -470,18 +475,24 @@ class InitialLoader:
         package_list: List[DataPackage] = []
         annot_kwargs = self._refactor_raw_annots(raw_annots)
         grouped_annot_kwargs = self._group_by_img_ref(annot_kwargs)
-        for image_ref, annot_kwargs in grouped_annot_kwargs.items():
+        for image_ref, raw_annots in grouped_annot_kwargs.items():
             image_path = self._image_path_from_ref(image_ref)
             image_dims = img_dims(image_path)
-            annotations = Annotations(*image_dims, self.boundary_type)
+            annotations = Annotations(*image_dims, self.boundary_type, self.__gen)
+            for raw_annot in raw_annots:
+                annotations.add(**raw_annot)
             package_list.append(DataPackage(image_path, annotations))
         return package_list
 
     def _image_path_from_ref(self, image_ref: str):
-        if not image_ref.endswith(f".{self.img_file_type}"):
-            return f"{self.img_dir_path}/{image_ref}.{self.img_file_type}"
+        for img_file_type in self.img_file_types:
+            if image_ref.endswith(f".{img_file_type}"):
+                return os.path.join(self.img_dir_path, image_ref)
         else:
-            return f"{self.img_dir_path}/{image_ref}"
+            if len(self.img_file_types) == 1:
+                return os.path.join(self.img_dir_path, f"{image_ref}.{self.img_file_types[0]}")
+            else:
+                raise ValueError(f"Unable to load file with name {image_ref}. No unambiguous file type provided.")
 
     def _grouped_annot_kwargs_to_annotations(self, annot_kwargs_list: list, image_dims: Tuple[int, int]) -> Annotations:
         """
@@ -568,11 +579,14 @@ class InitialLoader:
         Returns:
             (Dict[str, List[dict]]): Dict with image references as keys and lists of raw annotations as items
         """
+        if not raw_annots:
+            return {}
         sorted_raw_annots = sorted(raw_annots, key=itemgetter(c.DICTIONARY_KEY_IMAGE_REF))
         grouped_raw_annots = {}
-        current_image_ref = sorted_raw_annots[0][c.DICTIONARY_KEY_IMAGE_REF]
-        current_group = []
-        for raw_annot in sorted_raw_annots:
+        first_raw_annot = sorted_raw_annots[0]
+        current_image_ref = first_raw_annot[c.DICTIONARY_KEY_IMAGE_REF]
+        current_group = [first_raw_annot]
+        for raw_annot in sorted_raw_annots[1:]:
             if raw_annot[c.DICTIONARY_KEY_IMAGE_REF] != current_image_ref:
                 grouped_raw_annots[current_image_ref] = current_group
                 current_image_ref = raw_annot[c.DICTIONARY_KEY_IMAGE_REF]
@@ -714,5 +728,3 @@ class InitialLoader:
             if is_in_dict(value, options[c.LABEL_OPTION_ALIAS_ASSIGNMENT]):
                 value = options[c.LABEL_OPTION_ALIAS_ASSIGNMENT][value]
         return value, True
-
-

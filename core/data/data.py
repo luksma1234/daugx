@@ -1,3 +1,4 @@
+import warnings
 from copy import deepcopy
 from typing import Tuple, List, Union, Optional, Dict
 
@@ -53,8 +54,9 @@ class Dataset:
             self,
             id_: str,
             data_packages: List[DataPackage],
-            filters: List[FilterSequence],
-            background_percentage: Optional[float]
+            filters: Optional[List[FilterSequence]],
+            background_percentage: Optional[float],
+            gen: np.random.Generator
     ):
         """
         Filters are applied in the initialization.
@@ -66,6 +68,7 @@ class Dataset:
             filters (List[dict]): Filters applied for this dataset
             background_percentage (Optional[float]): Percentage at what background images are returned from fetch.
                                                      Background images skip filtering.
+            gen (np.random.Generator): RNG generator
         """
         self.__id = id_
         self.data_packages = data_packages
@@ -73,29 +76,32 @@ class Dataset:
         self.__filter_indexes: Dict[str, list] = {}
         self.__background_filter = FilterSequence(c.FILTER_BACKGROUND_ID)
         self.__background_indexes = []
-        self._init_filters(filters)
+        self.__gen = gen
+        if self.data_packages:
+            self._init_filters(filters)
 
     @property
     def id(self):
         return self.__id
 
-    def fetch(self, filter_: Optional[Union[str, list]]):
-        rand = get_random()
-        if self.__background_percentage is not None and get_random() < self.__background_percentage:
-            return self.data_packages[fetch_by_prob(self.__background_indexes, rand)]
+    def fetch(self, filter_: Optional[Union[str, list]] = None) -> Tuple[np.ndarray, Annotations]:
+        rand = get_random(self.__gen)
+        if self.__background_percentage is not None and get_random(self.__gen) < self.__background_percentage:
+            return self.data_packages[fetch_by_prob(self.__background_indexes, rand)].data
         elif filter_ is None:
-            return fetch_by_prob(self.data_packages, rand)
+            return fetch_by_prob(self.data_packages, rand).data
         elif isinstance(filter_, str):
-            return self.data_packages[fetch_by_prob(self.__filter_indexes[filter_], rand)]
+            return self.data_packages[fetch_by_prob(self.__filter_indexes[filter_], rand)].data
         elif isinstance(filter_, list):
             if not is_in_dict(str(sorted(filter_)), self.__filter_indexes):
                 self._combine_filters(filter_)
             return self.data_packages[fetch_by_prob(self.__filter_indexes[str(filter_)], rand)].data
 
-    def _init_filters(self, filters: List[FilterSequence]):
+    def _init_filters(self, filters: Optional[List[FilterSequence]]):
         self._init_background_filter()
-        for sequence in filters:
-            self.__filter_indexes[sequence.id] = sequence.filter(self.data_packages)
+        if filters is not None:
+            for sequence in filters:
+                self.__filter_indexes[sequence.id] = sequence.filter([data_package.meta_inf for data_package in self.data_packages])
 
     def _combine_filters(self, filters: List[str]):
         filter_set = set(filters[0])
@@ -110,8 +116,12 @@ class Dataset:
         """
         self.__background_filter.add(Filter(
            c.FILTER_TYPE_LABEL,
-           c.FILTER_SPECIFIER_CATEGORY_ANY,
+            # The specifier value is None - because the specifier category is "any"
+    {
+                c.FILTER_SPECIFIER_CATEGORY: c.FILTER_SPECIFIER_CATEGORY_ANY,
+                c.FILTER_SPECIFIER_VALUE: None
+             },
            c.FILTER_OPERATOR_NOT_EXISTS,
            None
         ), c.FILTER_SEQUENCE_OPERATOR_NONE)
-        self.__background_indexes = self.__background_filter.filter(self.data_packages)
+        self.__background_indexes = self.__background_filter.filter([data_package.meta_inf for data_package in self.data_packages])

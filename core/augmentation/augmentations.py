@@ -1,9 +1,10 @@
+import time
 import math
 from typing import Optional
 from copy import deepcopy
 
 import numpy as np
-import scipy as sp
+import cv2
 
 from .transforms import (
     SITransform,
@@ -11,19 +12,34 @@ from .transforms import (
     IOTransform
 )
 
+# TODO: This needs documentation
+# TODO: There need to be some global value for a background color
 
 class Shift(SITransform):
     def __init__(
             self,
-            x_shift: Optional[float] = None,
-            y_shift: Optional[float] = None
+            x_shift: float,
+            y_shift: float
     ) -> None:
+        """
+        Args:
+            x_shift (float): Shifts image towards the right hand side of the image.
+                             Negative numbers shift to the left hand side.
+            y_shift (float): Shifts image upwards. Negative numbers downwards.
+        """
         super().__init__()
         self.x_shift = x_shift
-        self.y_shift = y_shift
+        self.y_shift = -y_shift
+
+    def __eq__(self, other):
+        if not isinstance(other, Shift):
+            return False
+        return other.x_shift == self.x_shift and other.y_shift == self.y_shift
 
     def _apply_on_image(self):
-        self.image = sp.ndimage.shift(self.image, (self.x_shift, self.y_shift, 0))
+        rows, cols, _ = self.image.shape
+        affine = np.float32([[1, 0, self.x_shift], [0, 1, self.y_shift]])
+        self.image = cv2.warpAffine(self.image, affine, (cols, rows))
 
     def _apply_on_annots(self):
         self.annots.shift(self.x_shift, self.y_shift)
@@ -36,14 +52,19 @@ class Scale(SITransform):
             y_scale: Optional[float] = None
     ) -> None:
         super().__init__()
+        assert x_scale > 0 and y_scale > 0
         self.x_scale = x_scale if x_scale is not None else 1
         self.y_scale = y_scale if y_scale is not None else 1
 
+    def __eq__(self, other):
+        if not isinstance(other, Scale):
+            return False
+        return other.x_scale == self.x_scale and other.y_scale == self.y_scale
+
     def _apply_on_image(self):
-        self.image = sp.ndimage.zoom(self.image, (self.x_scale, self.y_scale, 1))
+        self.image = cv2.resize(self.image,None,fx=self.y_scale, fy=self.x_scale, interpolation = cv2.INTER_LINEAR)
 
     def _apply_on_annots(self):
-        self.annots.scale_border(self.x_scale, self.y_scale)
         self.annots.scale(self.x_scale, self.y_scale)
 
 
@@ -55,22 +76,39 @@ class Rotate(SITransform):
         super().__init__()
         self.angle = angle
 
+    def __eq__(self, other):
+        if not isinstance(other, Rotate):
+            return False
+        return other.angle == self.angle
+
     def _apply_on_image(self):
-        self.image = sp.ndimage.rotate(self.image, self.angle, reshape=False)
+        rows, cols, _ = self.image.shape
+        affine = cv2.getRotationMatrix2D(((cols - 1) / 2.0, (rows - 1) / 2.0), self.angle, 1)
+        self.image = cv2.warpAffine(self.image, affine, (cols, rows))
 
     def _apply_on_annots(self):
         self.annots.rotate(self.angle)
 
 
 class Resize(SITransform):
-    def __init__(self, target_width: int, target_height: int, preserve_aspect_ratio=True):
+    def __init__(self, width: int, height: int, preserve_aspect_ratio=True):
         super().__init__()
-        self.target_width = target_width
-        self.target_height = target_height
+        self.width = width
+        self.height = height
         self.preserve_aspect_ratio = preserve_aspect_ratio
         self.img_width = None
         self.img_height = None
         self.extend = 0
+
+        assert self.width > 0 and self.height > 0
+        # Tests showed that an aspect_ratio of 6 is max
+        assert 1 / 6 < (self.width / self.height) < 6
+
+    def __eq__(self, other):
+        if not isinstance(other, Resize):
+            return False
+        return (other.width == self.width and other.height == self.height and
+                other.preserve_aspect_ratio == self.preserve_aspect_ratio)
 
     def _apply_on_image(self):
         """
@@ -78,13 +116,11 @@ class Resize(SITransform):
         """
         self.img_width, self.img_height, _ = np.shape(self.image)
         if not self.preserve_aspect_ratio:
-            self.image = sp.ndimage.zoom(
-                self.image,
-                (self.target_width / self.img_width, self.target_height / self.img_height, 1)
-            )
+            self.image = cv2.resize(self.image, None, fx=self.height / self.img_height,
+                                    fy=self.width / self.img_width, interpolation=cv2.INTER_LINEAR)
         else:
             asp_ratio = self.img_width / self.img_height
-            resized_asp_ratio = self.target_width / self.target_height
+            resized_asp_ratio = self.width / self.height
             self.extend = math.ceil((asp_ratio - resized_asp_ratio) * self.img_width)
             if self.extend > 0:
                 stack_a = np.zeros(
@@ -108,36 +144,31 @@ class Resize(SITransform):
                 self.image = np.vstack((stack_a, self.image, stack_b))
             self.annots.set_border(x_max=np.shape(self.image)[0], y_max=np.shape(self.image)[1])
             self.annots.rebase_border()
-            self.image = sp.ndimage.zoom(
-                self.image,
-                (self.target_width / np.shape(self.image)[0], self.target_height / np.shape(self.image)[1], 1)
-            )
+            self.image = cv2.resize(self.image,None,fx=self.height / np.shape(self.image)[1], fy=self.width / np.shape(self.image)[0], interpolation = cv2.INTER_LINEAR)
 
     def _apply_on_annots(self):
+        width_ratio = self.width / self.img_width
+        height_ratio = self.height / self.img_height
         if self.preserve_aspect_ratio:
             if self.extend > 0:
-                self.annots.scale_border(
-                    self.target_width / self.img_width,
-                    self.target_height / (self.img_height + self.extend)
-                )
                 self.annots.scale(
-                    self.target_width / self.img_width,
-                    self.target_height / (self.img_height + self.extend)
+                    width_ratio,
+                    self.height / (self.img_height + self.extend)
                 )
                 self.annots.shift(
-                    y_shift=int(self.extend * self.target_height / (2 * (self.img_height + self.extend)))
+                    y_shift=int(self.extend * self.height / (2 * (self.img_height + self.extend)))
                 )
 
             elif self.extend < 0:
                 self.annots.scale(
-                    self.target_width / (self.img_width - self.extend),
-                    self.target_height / self.img_height
+                    self.width / (self.img_width - self.extend),
+                    height_ratio
                 )
                 self.annots.shift(
-                    x_shift=int(-self.extend * self.target_width / (2 * (self.img_width - self.extend)))
+                    x_shift=int(-self.extend * self.width / (2 * (self.img_width - self.extend)))
                 )
         else:
-            self.annots.scale(self.target_width / self.img_width, self.target_height / self.img_height)
+            self.annots.scale(width_ratio, height_ratio)
 
 
 class Mosaic(MITransform):
@@ -153,10 +184,12 @@ class Mosaic(MITransform):
         self.mode = mode
         self.unify_width = None
         self.unify_height = None
+        self.inflation = 0.25
 
-    @property
-    def inflation(self):
-        return 0.25
+    def __eq__(self, other):
+        if not isinstance(other, Mosaic):
+            return False
+        return other.mode == self.mode
 
     def _preprocess(self):
         assert len(self.image_list) == 4, (f"Mosaic Augmentation needs exactly 4 images to stitch together. "
@@ -188,18 +221,20 @@ class Mosaic(MITransform):
         ))
 
     def _apply_on_annots(self) -> None:
-        for annots in self.annots_list:
-            annots.scale_border(2, 2)
-            annots.rebase_border()
-        self.annots_list[1].shift(y_shift=self.unify_height)
-        self.annots_list[2].shift(x_shift=self.unify_width, y_shift=self.unify_height)
-        self.annots_list[3].shift(x_shift=self.unify_width)
         for idx, annots in enumerate(self.annots_list):
+            annots.scale_border(2, 2)
             if idx == 0:
                 self.annots = deepcopy(annots)
             else:
+                match idx:
+                    case 1:
+                        annots.shift(x_shift=self.unify_width)
+                    case 2:
+                        annots.shift(x_shift=self.unify_width, y_shift=self.unify_height)
+                    case 3:
+                        annots.shift(y_shift=self.unify_height)
                 for annot in annots:
-                    self.annots.add(annot.label.id, annot.boundary.points, annot.label.name)
+                    self.annots.add(annot.boundary.points, annot.label.id, annot.label.name)
 
 
 class Crop(SITransform):
@@ -220,13 +255,19 @@ class Crop(SITransform):
         self.y_max = y_max
 
         # validate crop box
-        assert self.x_min < self.x_max <= 1 and self.y_min < self.y_max <= 1
+        assert 0 < self.x_min < self.x_max <= 1 and 0 < self.y_min < self.y_max <= 1
 
         # absolute x and y values
         self.x_min_abs = None
         self.y_min_abs = None
         self.x_max_abs = None
         self.y_max_abs = None
+
+    def __eq__(self, other):
+        if not isinstance(other, Crop):
+            return False
+        return (other.x_min == self.x_min and other.y_min == self.y_min and other.x_min_abs == self.x_max
+                and other.y_max == self.y_max)
 
     def _apply_on_image(self):
         image_width = self.annots.width
@@ -257,12 +298,14 @@ class MixUp(MITransform):
         super().__init__()
         # lambda parameter
         self.lam = lam
+        self.inflation = 0.5
 
         assert 0.4 <= self.lam <= 0.6, f"Lambda parameter for MixUp must be in range 0.4 - 0.6. Found {self.lam}."
 
-    @property
-    def inflation(self):
-        return 0.5
+    def __eq__(self, other):
+        if not isinstance(other, MixUp):
+            return False
+        return other.lam == self.lam
 
     def _preprocess(self) -> None:
         assert len(self.image_list) == 2, (f"MixUp Augmentation needs exactly 2 images for blending. "
@@ -275,19 +318,9 @@ class MixUp(MITransform):
         )
 
     def _apply_on_annots(self) -> None:
-        self.annots = self.annots_list[0]
-        for annots in self.annots_list[1]:
-            self.annots.annots.append(annots)
-
-
-#
-#
-# def transform():
-#     perspective transform
-#     pass
-#
-#
-# def cutout():
-#     cutout is essentialy the same as a dropout - therefore maybe not necessary
-#     pass
-#
+        for idx, annots in enumerate(self.annots_list):
+            if idx == 0:
+                self.annots = deepcopy(annots)
+            else:
+                for annot in annots:
+                    self.annots.add(annot.boundary.points, annot.label.id, annot.label.name)

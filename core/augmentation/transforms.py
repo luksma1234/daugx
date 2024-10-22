@@ -13,6 +13,7 @@ class SITransform(ABC):
     def __init__(self):
         self.image = None
         self.annots = None
+        self.inflation = 1
 
     def apply(
             self,
@@ -37,6 +38,17 @@ class SITransform(ABC):
         if self.annots is not None:
             self._apply_on_annots()
         return self.image, self.annots
+
+    @abstractmethod
+    def __eq__(self, other):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Verifies equality by comparing all input args. Mandatory to compare augmentations to verify uniqueness during
+        block building.
+        """
+        pass
+
 
     @abstractmethod
     def _apply_on_image(self):
@@ -89,6 +101,15 @@ class MITransform(ABC):
         return self.image, self.annots
 
     @abstractmethod
+    def __eq__(self, other):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Verifies equality by comparing all input args
+        """
+        pass
+
+    @abstractmethod
     def _apply_on_images(self) -> None:
         pass
 
@@ -106,6 +127,15 @@ class IOTransform(ABC):
     Image Only Transform
     """
     def __init__(self):
+        pass
+
+    @abstractmethod
+    def __eq__(self, other):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Verifies equality by comparing all input args
+        """
         pass
 
     @abstractmethod

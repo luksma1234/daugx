@@ -1,5 +1,3 @@
-from typing import Tuple
-
 from .borders import ImageBorder
 
 import numpy as np
@@ -35,6 +33,8 @@ class Boundary:
             AssertionError if shape of boundary points does not match with (n, 2)
         """
         boundary_shape = np.shape(self._points)
+        if len(boundary_shape) == 0:
+            pass
         assert len(boundary_shape) == boundary_shape[1] == 2, (f"Expected boundary of shape (n, 2). "
                                                                f"Received shape {boundary_shape}.")
 
@@ -60,11 +60,11 @@ class Boundary:
 
     @property
     def boundary_center(self):
-        return self.__get_boundary_center()
+        return self._get_boundary_center()
 
     @property
     def area(self):
-        return self.__get_area()
+        return self._get_area()
 
     @property
     def visualize(self):
@@ -72,25 +72,25 @@ class Boundary:
 
     @property
     def width(self):
-        return self.__get_width()
+        return self._get_width()
 
     @property
     def height(self):
-        return self.__get_height()
+        return self._get_height()
 
     @property
     def center(self):
-        return self.__get_boundary_center()
+        return self._get_boundary_center()
 
-    def __get_width(self):
+    def _get_width(self):
         points_x, points_y = self._points.T
         return np.max(points_x) - np.min(points_x)
 
-    def __get_height(self):
+    def _get_height(self):
         points_x, points_y = self._points.T
         return np.max(points_y) - np.min(points_y)
 
-    def __get_boundary_center(self):
+    def _get_boundary_center(self):
         """
         Calculates the center of the boundary by the mid-point between min and max x and y.
         """
@@ -102,7 +102,7 @@ class Boundary:
             ]
         )
 
-    def __get_image_center(self):
+    def _get_image_center(self):
         """
         Calculates the center of the image by the mid-point between min and max x and y.
         """
@@ -113,13 +113,14 @@ class Boundary:
             ]
         )
 
-    def __get_area(self) -> float:
+    def _get_area(self) -> float:
         """
 
         -- This function may be overwritten in a subclass --
 
         Calculates the area which is enclosed by the boundary. Area is returned as float of n pixel².
         """
+        pass
 
     def set(self, points: np.ndarray, validate: bool = True):
         self._points = points
@@ -149,12 +150,13 @@ class Boundary:
         """
         self.set(self._points + np.array([x_shift, y_shift]))
 
-    def scale(self, x_scale: float, y_scale: float):
+    def scale(self, x_scale: float, y_scale: float, border: bool = True):
         """
-        Scales boundary by multiplying each point by a scaling matrix.
+        Scales boundary by multiplying each point by a scaling matrix. Scales Border as well if border attribute is set.
         Args:
             x_scale (float): x or width scale factor
             y_scale (float): y or height scale factor
+            border (bool): True if image border is scaled
         """
         matrix = np.array(
             [
@@ -162,7 +164,10 @@ class Boundary:
                 [0, y_scale]
             ]
         )
-        self.set(np.einsum("bi, ij -> bi", self._points, matrix))
+        scaled_points = np.einsum("bi, ij -> bi", self._points, matrix)
+        self.set(scaled_points)
+        if border:
+            self.border.scale(x_scale, y_scale)
 
     def rotate(self, angle: float):
         """
@@ -170,7 +175,7 @@ class Boundary:
         Args:
             angle (float): Angle of rotation in deg
         """
-        img_center = self.__get_image_center()
+        img_center = self._get_image_center()
         rad_angle = np.deg2rad(-angle)
         matrix = np.array(
             [
@@ -233,7 +238,7 @@ class BBoxBoundary(Boundary):
                 ]
         )
 
-    def __get_area(self) -> float:
+    def _get_area(self) -> float:
         """
         Calculates box area as product of box width and box height.
         """
@@ -247,25 +252,25 @@ class KeyPBoundary(Boundary):
     def __init__(self, points: np.ndarray, img_border: ImageBorder):
         super().__init__(points, img_border)
 
-    def __get_area(self) -> float:
+    def _get_area(self) -> float:
         """
         Keypoints have no area. Therefore, 0 is returned.
         """
         return 0
 
-    def __get_width(self):
+    def _get_width(self):
         """
         Keypoints have no width. Therefore, 0 is returned
         """
         return 0
 
-    def __get_height(self):
+    def _get_height(self):
         """
         Keypoints have no height. Therefore, 0 is returned
         """
         return 0
 
-    def __get_boundary_center(self):
+    def _get_boundary_center(self):
         """
         The Keypoint itself is the center.
         """
