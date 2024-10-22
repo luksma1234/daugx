@@ -102,3 +102,11 @@ class ImageBorder:
         self.__width = self.__x_max - self.__x_min
         self.__height = self.__y_max - self.__y_min
         self.reset()
+
+    def scale(self, x_scale: float, y_scale: float) -> None:
+        """
+        Scales the border
+        """
+        self.__width *= x_scale
+        self.__height *= y_scale
+        self.reset()

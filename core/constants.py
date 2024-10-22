@@ -1,4 +1,4 @@
-
+import uuid
 
 # Annotation constants
 
@@ -45,9 +45,9 @@ QUERY_MANDATORY_KEYWORDS_LIST = [QUERY_IMAGE_REF]
 QUERY_OPTIONAL_KEYWORDS_LIST = [QUERY_LABEL_NAME, QUERY_LABEL_ID, QUERY_CUSTOM]
 
 # Annotation boundary types
-BOUNDARY_TYPE_BBOX = "bbox"
-BOUNDARY_TYPE_KEYPOINT = "keypoint"
-BOUNDARY_TYPE_POLYGON = "polygon"
+BOUNDARY_TYPE_BBOX = "BBoxBoundary"
+BOUNDARY_TYPE_KEYPOINT = "KeyPBoundary"
+BOUNDARY_TYPE_POLYGON = "PolyBoundary"
 
 
 # Annotation raw dictionary keys
@@ -131,11 +131,12 @@ NODE_TYPE_AUGMENT = "augment"
 NODE_TYPE_DIVIDE = "divide"
 
 # config constants
-CONFIG_KEY_WORKFLOW = "workflow"
+CONFIG_KEY_BLOCKS = "blocks"
 CONFIG_KEY_DATASETS = "datasets"
 CONFIG_KEY_INIT = "init"
 CONFIG_KEY_FILTER = "filter"
 CONFIG_KEY_ID = "id"
+CONFIG_KEY_QUERY = "query"
 CONFIG_KEY_BACKGROUND_PERCENTAGE = "background_percentage"
 
 # label options constants
@@ -144,10 +145,13 @@ LABEL_OPTION_NAME = "name"
 LABEL_OPTION_FILTER_LIST = "filter_list"
 LABEL_OPTION_ALIAS_ASSIGNMENT = "alias_assignment"
 
+PATH_INPUTS = "inputs"
+PATH_AUGMENTATIONS = "augmentations"
 
+DATA_OUTPUT = "output"
 
-
-
+# Random constants
+BASE_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 

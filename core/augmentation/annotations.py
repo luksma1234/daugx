@@ -7,7 +7,6 @@ from daugx.utils import new_id
 from .boundaries import Boundary, BBoxBoundary, KeyPBoundary, PolyBoundary
 from.borders import ImageBorder
 
-BOUNDARY_NAME = "Boundary"
 BOUNDARY_TYPE_OBJS = [BBoxBoundary, KeyPBoundary, PolyBoundary]
 
 
@@ -23,8 +22,6 @@ class Label:
         self.id = label_id
         self.name = name
 
-# TODO: Implement additional Information to annotation. Additional information does not change during augmentations.
-
 
 class Annotation:
     def __init__(
@@ -32,8 +29,9 @@ class Annotation:
             boundary_points: np.ndarray,
             image_border: ImageBorder,
             boundary_type: str,
+            uuid: str,
             label_id: Optional[int] = None,
-            label_name: Optional[str] = None
+            label_name: Optional[str] = None,
     ) -> None:
         """
         A Generic implementation of annotations.
@@ -49,7 +47,7 @@ class Annotation:
         self.__label: Label | None = None
         self.set_label(label_id, label_name)
 
-        self.id = new_id()
+        self.id = uuid
         self.valid = True
         self.verify()
 
@@ -89,7 +87,7 @@ class Annotation:
     def set_boundary(self, points: np.ndarray, boundary_type: str, img_border: ImageBorder) -> None:
         if self.__boundary is None:
             for obj in BOUNDARY_TYPE_OBJS:
-                if obj.__name__ == boundary_type + BOUNDARY_NAME:
+                if obj.__name__ == boundary_type:
                     self.__boundary = obj(points, img_border)
                     break
             else:
@@ -120,7 +118,7 @@ class Annotation:
 
 class Annotations:
 
-    def __init__(self, image_width: int, image_height: int, boundary_type: str) -> None:
+    def __init__(self, image_width: int, image_height: int, boundary_type: str, gen: np.random.Generator) -> None:
         """
         Docstring missing...
         """
@@ -128,6 +126,7 @@ class Annotations:
         self.width = image_width
         self.height = image_height
         self.boundary_type = boundary_type
+        self.__gen = gen
         self.border = ImageBorder(self.width, self.height)
 
     def __getitem__(self, index: int) -> Annotation:
@@ -180,20 +179,25 @@ class Annotations:
     def rebase_border(self):
         self.border.rebase()
 
-    def add(self, label_id: Optional[int], boundary_points: np.ndarray, label_name: Optional[str] = None) -> None:
+    def add(self, boundary_points: Optional[np.ndarray], label_id: Optional[int] = None, label_name: Optional[str] = None, **kwargs) -> None:
         """
         Adds a new annotation.
         Args:
+            boundary_points (np.ndarray): numpy array of boundary points. Must be of shape (n, 2).
             label_id (int): ID of annotation label
             label_name (Optional[str]): name of annotation label
-            boundary_points (np.ndarray): numpy array of boundary points. Must be of shape (n, 2).
+
         """
+        # Returns on invalid boundary
+        if boundary_points is None:
+            return
         self.annots.append(Annotation(
             boundary_points,
             self.border,
             self.boundary_type,
+            new_id(self.__gen),
             label_id,
-            label_name
+            label_name,
         ))
 
     def filter(self, drop_labels: List[Union[str, int]]):
@@ -225,9 +229,14 @@ class Annotations:
             x_scale (float): scale factor on the x-axis
             y_scale (float): scale factor on the y-axis
         """
-        for annot in self.annots:
-            annot.boundary.scale(x_scale, y_scale)
+        for index, annot in enumerate(self.annots):
+            # Scales image border on first annotation only. Prevents too many rescales due to shared image border.
+            if index == 0:
+                annot.boundary.scale(x_scale, y_scale, True)
+            else:
+                annot.boundary.scale(x_scale, y_scale, False)
             annot.clip()
+
 
     def rotate(self, angle: float):
         """

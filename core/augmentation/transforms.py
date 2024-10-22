@@ -40,6 +40,17 @@ class SITransform(ABC):
         return self.image, self.annots
 
     @abstractmethod
+    def __eq__(self, other):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Verifies equality by comparing all input args. Mandatory to compare augmentations to verify uniqueness during
+        block building.
+        """
+        pass
+
+
+    @abstractmethod
     def _apply_on_image(self):
         """
         -- This method must be overwritten in a subclass --
@@ -90,6 +101,15 @@ class MITransform(ABC):
         return self.image, self.annots
 
     @abstractmethod
+    def __eq__(self, other):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Verifies equality by comparing all input args
+        """
+        pass
+
+    @abstractmethod
     def _apply_on_images(self) -> None:
         pass
 
@@ -107,6 +127,15 @@ class IOTransform(ABC):
     Image Only Transform
     """
     def __init__(self):
+        pass
+
+    @abstractmethod
+    def __eq__(self, other):
+        """
+        -- This method must be overwritten in a subclass --
+
+        Verifies equality by comparing all input args
+        """
         pass
 
     @abstractmethod

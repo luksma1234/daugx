@@ -1,19 +1,37 @@
-from typing import Callable, List, Union, Tuple
+from typing import Callable, List, Union, Tuple, Dict
 
 from daugx.core import constants as c
 from daugx.core.data.meta_inf import MetaInf
 
 
 class Filter:
-    def __init__(self, type_: str, specifier: dict, operator: str, value: Union[int, float, None]):
+    def __init__(self, type_: str, specifier: Dict[str, Union[str, None]], operator: str, value: Union[int, float, None]):
+        """
+        Args:
+            type_ (str): Type of filter. Type defines on what metric the filtering is applied. Available metrics are:
+                MinArea, MaxArea - Filters by the annotation area
+                MinWidth, MinHeight, MaxWidth, MaxHeight - Filters by the annotation width or height
+                Label - Filters by annotation label IDs or names
+                NLabel - Filters by the amount of annotation labels
+            specifier (dict): Specifies on what Label the filter is applied. A specifier is a dict with two keys:
+                {
+                    "category": <one of ["name", "id", "any"]>
+                    "value": <any value or None>
+                }
+                The category of the specifier defines if labels are filtered by id or name. The value defines what value
+                the filtered category must have. If the category is any - the value is obsolete and is typically None.
+            operator (str): The operator to compare the values with. Available Operators are:
+                >, <, =, ≤, ≥, exists, not exists
+            value (Union[int, float, None]): The value which is compared to filter. The value can be any value following
+            the type hinting.
+        """
         self.__type = type_
         self.__specifier = specifier
         self.__specifier_value = self.__specifier[c.FILTER_SPECIFIER_VALUE]
         self.__specifier_category = self.__specifier[c.FILTER_SPECIFIER_CATEGORY]
         self.__operator = operator
         self.__value = value
-
-        # __comparator is compared to __value
+        # __comparator is the comparison value and is compared to __value
         self.__comparator = None
 
     def is_filtered(self, meta_inf: MetaInf) -> bool:

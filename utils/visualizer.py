@@ -1,6 +1,6 @@
 from typing import Tuple, Union, Dict, Optional
 
-from .annotations import Annotations
+from daugx.core.augmentation.annotations import Annotations
 from daugx.utils import is_in_dict
 
 import cv2
@@ -27,34 +27,38 @@ class Colors:
 
     def add(self, label: str, color: Union[Tuple[int, int, int], np.ndarray]) -> None:
         color = np.array(color, dtype=np.uint8)
-        assert len(color) == 3, f"Unable to parse {color} as color. Length does not fit."
+        assert len(color) == 3
         self.colors[label] = color
 
     def set_colors(self, colors: Dict[str, Union[Tuple[int, int, int], np.ndarray]]) -> None:
-        self.reset()
+        self._reset()
         for label, color in colors.items():
             self.add(label, color)
 
-    def reset(self):
+    def _reset(self):
         self.colors = {}
 
 
-class Visualize:
+class Visualizer:
 
-    def __init__(self, image: np.ndarray, annots: Annotations, colors: Optional[Colors] = None) -> None:
+    def __init__(self, colors: Optional[Colors] = None, wait_key: int = 0) -> None:
+        self.image = None
+        self.annots = None
+        self.colors = colors
+        self.image_width = None
+        self.image_height = None
+        self.wait_key = wait_key
+
+    def show(self, image: np.ndarray, annots: Annotations):
         self.image = image
         self.annots = annots
-        self.colors = colors
         self.image_width, self.image_height = np.shape(self.image)[:2]
-        self._show()
-
-    def _show(self):
         self._assemble()
-
         cv2.imshow("AugmentedImage", self.image)
-        cv2.waitKey(0)
+        cv2.waitKey(self.wait_key)
 
     def _assemble(self):
+        # TODO: Update Visualizer - enhance box visibility
         for annot in self.annots:
             # denormalized boundary
             boundary = annot.boundary.visualize.astype(np.int32)
@@ -67,28 +71,3 @@ class Visualize:
                 color,
                 BORDER_THICKNESS
             )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

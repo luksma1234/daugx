@@ -1,4 +1,39 @@
 {
+  "datasets": [
+    {
+      "id": "cars",
+      "init": {
+        "image_dir_path": "/home/datasets/car_dataset/training_images",
+        "annot_path": "/home/datasets/car_dataset/train_annotations.csv",
+        "query": "IMAGEREF [n][0] XMIN [n][1] YMIN [n][2] XMAX [n][3] YMAX [n][4] LABELNAME car",
+        "annot_mode": "onefile",
+        "annot_file_type": "csv",
+        "img_file_type": "jpg"
+      }
+    },
+    {
+      "id": "covid",
+      "init": {
+        "image_dir_path": "/home/datasets/covid_dataset",
+        "annot_path": "/home/datasets/covid_dataset",
+        "query": "IMAGEREF {annotation}{filename} LABELNAME {annotation}{object}[n]{name} XMIN {annotation}{object}[n]{bndbox}{xmin} YMIN {annotation}{object}[n]{bndbox}{ymin} XMAX {annotation}{object}[n]{bndbox}{xmax} YMAX {annotation}{object}[n]{bndbox}{ymax}",
+        "annot_mode": "directory",
+        "annot_file_type": "xml",
+        "img_file_type": "jpg"
+      }
+    },
+    {
+      "id": "fruits",
+      "init": {
+        "image_dir_path": "/home/datasets/fruit_dataset",
+        "annot_path": "/home/datasets/fruit_dataset",
+        "query": "IMAGEREF {annotation}{filename} LABELNAME {annotation}{object}[n]{name} XMIN {annotation}{object}[n]{bndbox}{xmin} XMAX {annotation}{object}[n]{bndbox}{xmax} YMIN {annotation}{object}[n]{bndbox}{ymin} YMAX {annotation}{object}[n]{bndbox}{ymax}",
+        "annot_mode": "directory",
+        "annot_file_type": "xml",
+        "img_file_type": "jpg"
+      }
+    }
+  ],
   "blocks": [
     {
       "id": "1",
@@ -7,8 +42,8 @@
       "next": ["4"],
       "shares": [1],
       "params": {
-        "dataset": "abc",
-        "n_total_data": 1500,
+        "dataset": "cars",
+        "n_total_data": 1001,
         "filters": []
       }
     },
@@ -19,8 +54,8 @@
       "next": ["5"],
       "shares": [1],
       "params": {
-        "dataset": "def",
-        "n_total_data": 3000,
+        "dataset": "covid",
+        "n_total_data": 358,
         "filters": []
       }
     },
@@ -31,8 +66,8 @@
       "next": ["6"],
       "shares": [1],
       "params": {
-        "dataset": "ghi",
-        "n_total_data": 6000,
+        "dataset": "fruits",
+        "n_total_data": 240,
         "filters": []
       }
     },

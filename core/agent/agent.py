@@ -1,8 +1,10 @@
 from typing import Tuple, List
 import warnings
 
-from daugx.utils.misc import load_json, get_seed, set_seed, is_api_key, get_config_from_api, is_in_dict
-from daugx.core.agent.workflow import Workflow
+from daugx.core.augmentation.annotations import Annotations
+from daugx.utils.misc import load_json, get_seed, is_api_key, get_config_from_api, is_in_dict
+from daugx.utils.visualizer import Visualizer, Colors
+from daugx.core.agent.executor import Executor
 from daugx.core.data.data import Dataset, DataPackage
 from daugx.core.data.loader import InitialLoader
 from daugx.core.data.filter import FilterSequence, Filter
@@ -33,39 +35,40 @@ class Agent:
     seamless integration into your training process. Make sure the initialization of the Agent takes place outside the
     loop or the dataloader, to prevent an initialization each time data is fetched.
     """
-    def __init__(self, input_: str, seed: int = None):
+    def __init__(self, key_or_path: str, seed: int = None):
         """
         Args:
-            input_ (str): API Key or path to augmentation workflow file
+            key_or_path (str): API Key or path to augmentation workflow file
             seed (int): seed for all Agent tasks - this seed will be used throughout all augmentations
         """
-        self.input = input_
-        self.config = self.get_config()
-        self.workflow_config = self.config[c.CONFIG_KEY_WORKFLOW]
+        self.input = key_or_path
+        self.config = self._get_config()
+        self.block_config = self.config[c.CONFIG_KEY_BLOCKS]
         self.datasets_config = self.config[c.CONFIG_KEY_DATASETS]
-        self.workflow = Workflow(self.workflow_config)
         self.datasets = []
-
         self.seed = seed
-
         if self.seed is None:
             self.seed = get_seed()
-        set_seed(self.seed)
+        self.__gen = np.random.default_rng(self.seed)
         warnings.warn(f"daugx - Seed for execution: {self.seed}")
+        self._init_datasets()
+        self.executor = Executor(self.config[c.CONFIG_KEY_BLOCKS], self.datasets, self.__gen)
 
-    def fetch(self) -> Tuple[np.ndarray, np.ndarray]:
+    def fetch(self, debug=False, wait_key: int = 0) -> Tuple[np.ndarray, Annotations]:
         """
         Gets a random path and executes it. All augmentations are applied in this step.
 
         Returns:
             (Tuple[np.ndarray, np.ndarray]): Tuple of image as numpy array and its annotations as numpy array
         """
-        path = self.workflow.fetch()
+        if debug:
+            self._visualize(*self.executor.fetch(), wait_key)
+        else:
+            return self.executor.fetch()
 
-
-    def get_config(self):
+    def _get_config(self):
         """
-        Retrieves the .json workflow config from the input argument. Differentiates between loading from file and
+        Retrieves the config from self.input. Differentiates between loading from file and
         loading from API Key.
         """
         if is_api_key(self.input):
@@ -78,15 +81,27 @@ class Agent:
         Initializes all datasets defined in the self.config file. Loads annotations and filters in RAM.
         """
         for dataset in self.datasets_config:
-            initial_loader = InitialLoader(**dataset[c.CONFIG_KEY_INIT])
+            initial_loader = InitialLoader(self.__gen, **dataset[c.CONFIG_KEY_INIT])
             data_packages = initial_loader.load()
-            filters = self._init_filters(dataset[c.CONFIG_KEY_FILTER])
+            if len(data_packages) == 0:
+                warnings.warn(f"Loaded an empty dataset. Please verify your loading query: {dataset[c.CONFIG_KEY_INIT][c.CONFIG_KEY_QUERY]}")
+            # Filter key does not exist in config if no filters are provided
+            if is_in_dict(c.CONFIG_KEY_FILTER, dataset):
+                filters = self._init_filters(dataset[c.CONFIG_KEY_FILTER])
+            else:
+                filters = None
             if is_in_dict(c.CONFIG_KEY_BACKGROUND_PERCENTAGE, dataset):
-                self.datasets.append(Dataset(
-                    dataset[c.CONFIG_KEY_ID], data_packages, filters, dataset[c.CONFIG_KEY_BACKGROUND_PERCENTAGE])
+                self.datasets.append(
+                    Dataset(
+                        dataset[c.CONFIG_KEY_ID], data_packages, filters, dataset[c.CONFIG_KEY_BACKGROUND_PERCENTAGE], self.__gen
+                    )
                 )
             else:
-                self.datasets.append(Dataset(dataset[c.CONFIG_KEY_ID], data_packages, filters, None))
+                self.datasets.append(
+                    Dataset(
+                        dataset[c.CONFIG_KEY_ID], data_packages, filters, None, self.__gen
+                    )
+                )
 
     @staticmethod
     def _init_filters(filter_list: List[dict]) -> List[FilterSequence]:
@@ -104,10 +119,10 @@ class Agent:
             filters.append(sequence)
         return filters
 
-
-
-
-
+    @staticmethod
+    def _visualize(image: np.ndarray, annots: Annotations, wait_key: int):
+        vis = Visualizer(wait_key=wait_key)
+        vis.show(image, annots)
 
 
 
