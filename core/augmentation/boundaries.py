@@ -10,6 +10,30 @@ class Boundary:
         self.validate()
         self.valid = True
 
+    @property
+    def points(self) -> np.ndarray:
+        return self._points
+
+    @property
+    def area(self):
+        return self._get_area()
+
+    @property
+    def visualize(self):
+        return self._points
+
+    @property
+    def width(self):
+        return self._get_width()
+
+    @property
+    def height(self):
+        return self._get_height()
+
+    @property
+    def center(self):
+        return self._get_boundary_center()
+
     def clean(self):
         """
         Cleans Boundary by removing duplicates.
@@ -53,34 +77,6 @@ class Boundary:
         """
         points_x, points_y = self._points.T
         self.valid = len(np.unique(points_x)) != 1 and len(np.unique(points_y)) != 1
-
-    @property
-    def points(self) -> np.ndarray:
-        return self._points
-
-    @property
-    def boundary_center(self):
-        return self._get_boundary_center()
-
-    @property
-    def area(self):
-        return self._get_area()
-
-    @property
-    def visualize(self):
-        return self._points
-
-    @property
-    def width(self):
-        return self._get_width()
-
-    @property
-    def height(self):
-        return self._get_height()
-
-    @property
-    def center(self):
-        return self._get_boundary_center()
 
     def _get_width(self):
         points_x, points_y = self._points.T
@@ -153,11 +149,15 @@ class Boundary:
     def scale(self, x_scale: float, y_scale: float, border: bool = True):
         """
         Scales boundary by multiplying each point by a scaling matrix. Scales Border as well if border attribute is set.
+        Invalidates boundary if any axis is scales with 0.
         Args:
             x_scale (float): x or width scale factor
             y_scale (float): y or height scale factor
             border (bool): True if image border is scaled
         """
+        if x_scale == 0 or y_scale == 0:
+            self.valid = False
+            return
         matrix = np.array(
             [
                 [x_scale, 0],
@@ -173,7 +173,7 @@ class Boundary:
         """
         Rotates boundary by an angle.
         Args:
-            angle (float): Angle of rotation in deg
+            angle (float): Angle of rotation in deg. Positive angle, clockwise rotation
         """
         img_center = self._get_image_center()
         rad_angle = np.deg2rad(-angle)
@@ -238,7 +238,7 @@ class BBoxBoundary(Boundary):
                 ]
         )
 
-    def _get_area(self) -> float:
+    def _get_area(self):
         """
         Calculates box area as product of box width and box height.
         """
@@ -284,4 +284,7 @@ class PolyBoundary(Boundary):
     def __init__(self, points: np.ndarray, img_border: ImageBorder):
         super().__init__(points, img_border)
 
+    def _get_area(self) -> float:
+        points_x, points_y = self._points.T
+        return 0.5 * np.abs(np.dot(points_x, np.roll(points_y, 1)) - np.dot(points_y, np.roll(points_x, 1)))
 

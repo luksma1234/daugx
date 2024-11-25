@@ -55,7 +55,7 @@ class SITransform(ABC):
         """
         -- This method must be overwritten in a subclass --
 
-        Applied the transformation to the image.
+        Applies the transformation to the image.
         """
         pass
 
@@ -64,7 +64,7 @@ class SITransform(ABC):
         """
         -- This method must be overwritten in a subclass --
 
-        Applied the transformation to the annotations.
+        Applies the transformation to the annotations.
         """
         pass
 
