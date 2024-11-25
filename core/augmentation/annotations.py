@@ -101,6 +101,7 @@ class Annotation:
         """
         if not self.valid:
             return
+        self.__boundary.validate()
         self.valid = self.__boundary.valid
 
     def _get_area(self) -> float:
@@ -122,6 +123,7 @@ class Annotations:
         """
         Docstring missing...
         """
+        # TODO: Implement as properties
         self.annots: List[Annotation] = []
         self.width = image_width
         self.height = image_height
@@ -137,7 +139,7 @@ class Annotations:
         Cleans list of annotations from invalid annots.
         Setting annots as invalid can also be an option to filter annots.
         """
-        self.annots = [annot for annot in self.annots if not annot.valid]
+        self.annots = [annot for annot in self.annots if annot.valid]
 
     def set_border(
             self,
@@ -156,14 +158,18 @@ class Annotations:
             y_max (Optional - int): new max y value of border
         """
         self.border.set(x_min, y_min, x_max, y_max)
+        width_change = 0
+        height_change = 0
         if x_min is not None:
-            self.width -= x_min
+            width_change += x_min
         if x_max is not None:
-            self.width -= self.width - x_max
+            width_change += self.width - x_max
         if y_min is not None:
-            self.height -= y_min
+            height_change += y_min
         if y_max is not None:
-            self.height -= self.height - y_max
+            height_change += self.height - y_max
+        self.width -= width_change
+        self.height -= height_change
 
     def scale_border(self, x_scale: float = 1, y_scale: float = 1):
         """
@@ -178,6 +184,8 @@ class Annotations:
 
     def rebase_border(self):
         self.border.rebase()
+        self.width = self.border.width
+        self.height = self.border.height
 
     def add(self, boundary_points: Optional[np.ndarray], label_id: Optional[int] = None, label_name: Optional[str] = None, **kwargs) -> None:
         """
@@ -207,24 +215,26 @@ class Annotations:
             drop_labels (List[Union[str, int]]): List of label names or ids to be dropped. List can be mixed.
         """
         for annotation in self.annots:
-            if annotation.label.id or annotation.label.name in drop_labels:
+            if annotation.label.id in drop_labels or annotation.label.name in drop_labels:
                 annotation.valid = False
         self.clean()
     
-    def shift(self, x_shift: Optional[float] = 0, y_shift: Optional[float] = 0):
+    def shift(self, x_shift: float = 0.0, y_shift: float = 0.0):
         """
-        Shifts boundaries of all annotations. If shift is None - no shift on that axis is performed.
-        Args:
+        Shifts boundaries of all annotations. Does not affect border.
+        Args
             x_shift (float): absolute shift on the x-axis in pixels.
             y_shift (float): absolute shift on the y-axis in pixels.
         """
         for annot in self.annots:
             annot.boundary.shift(x_shift, y_shift)
             annot.clip()
+            annot.verify()
+        self.clean()
 
-    def scale(self, x_scale: Optional[float] = 1, y_scale: Optional[float] = 1):
+    def scale(self, x_scale: float = 1.0, y_scale: float = 1.0):
         """
-        Scales borders and boundaries of all annotations. If scale is None - no scale on that axis is performed.
+        Scales borders and boundaries of all annotations.
         Args:
             x_scale (float): scale factor on the x-axis
             y_scale (float): scale factor on the y-axis
@@ -236,11 +246,12 @@ class Annotations:
             else:
                 annot.boundary.scale(x_scale, y_scale, False)
             annot.clip()
-
+        self.width = self.border.width
+        self.height = self.border.height
 
     def rotate(self, angle: float):
         """
-        Rotates boundaries of all annotations.
+        Rotates boundaries of all annotations. Does not affect border.
         Args:
             angle (float): Rotation angle in deg
         """
@@ -258,7 +269,9 @@ class Annotations:
             y_max (float): max value for y in percentage
         """
         self.set_border(x_min, y_min, x_max, y_max)
-        for annot in self.annots:
-            annot.clip()
-            annot.boundary.shift(-x_min, -y_min)
         self.rebase_border()
+        for annot in self.annots:
+            annot.boundary.shift(-x_min, -y_min)
+            annot.clip()
+            annot.verify()
+        self.clean()

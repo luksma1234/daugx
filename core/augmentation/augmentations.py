@@ -14,18 +14,29 @@ from .transforms import (
 
 # TODO: This needs documentation
 # TODO: There need to be some global value for a background color
+# TODO: Random needs to be implemented
+# TODO: Add dynamic resizing / cropping, where resizes of images are done automatically depending on the target image size.
 
 class Shift(SITransform):
     def __init__(
             self,
-            x_shift: float,
-            y_shift: float
+            x_shift: float = 0,
+            y_shift: float = 0
     ) -> None:
         """
+
+        Shifts all pixels of an image. Pixels that are shifted outside the image are removed. New pixels will be created
+        using the defined background color. Shifts the right hand side of the image for positive x. Shifts upwards for
+        positive y.
+
         Args:
-            x_shift (float): Shifts image towards the right hand side of the image.
-                             Negative numbers shift to the left hand side.
-            y_shift (float): Shifts image upwards. Negative numbers downwards.
+            x_shift (Optional[float]): Shifts image towards the right hand side of the image.
+                                       Negative numbers shift to the left hand side.
+            y_shift (Optional[float]): Shifts image upwards. Negative numbers downwards.
+
+        Returns:
+            (None)
+
         """
         super().__init__()
         self.x_shift = x_shift
@@ -48,13 +59,28 @@ class Shift(SITransform):
 class Scale(SITransform):
     def __init__(
             self,
-            x_scale: Optional[float] = None,
-            y_scale: Optional[float] = None
+            x_scale: float = 1,
+            y_scale: float = 1
     ) -> None:
+        """
+
+        Scales an image by resizing it. Uses cv2.resize for scaling of the image. Horizontal scaling is tuned by x
+        scaling. Vertical scaling is tunes by the y factor. Values greater than 1 will increase the image size on the
+        scaling axis by the scaling factor. Values smaller than 1 will decrease image size on the scaling axis by the
+        scaling factor.
+
+        Args:
+            x_scale (float): Horizontal scaling factor
+            y_scale (float): Vertical scaling factor
+
+        Returns:
+            (None)
+
+        """
         super().__init__()
         assert x_scale > 0 and y_scale > 0
-        self.x_scale = x_scale if x_scale is not None else 1
-        self.y_scale = y_scale if y_scale is not None else 1
+        self.x_scale = x_scale
+        self.y_scale = y_scale
 
     def __eq__(self, other):
         if not isinstance(other, Scale):
@@ -73,6 +99,18 @@ class Rotate(SITransform):
             self,
             angle: float
     ) -> None:
+        """
+
+       Rotates all pixels of an image around the image center. Image rotates clockwise with a positive angle.
+       Image rotates counterclockwise with a negative angles.
+
+        Args:
+            angle (float): Angle of rotation
+
+        Returns:
+            (None)
+
+        """
         super().__init__()
         self.angle = angle
 
@@ -91,7 +129,26 @@ class Rotate(SITransform):
 
 
 class Resize(SITransform):
-    def __init__(self, width: int, height: int, preserve_aspect_ratio=True):
+    def __init__(
+            self,
+            width: int,
+            height: int,
+            preserve_aspect_ratio=True
+    ):
+        """
+
+       Resizes an image to the target width and height. Can preserve aspect ratio. Resulting additional pixels are
+       filled with the background color.
+
+        Args:
+            width (int): Target width of image
+            height (int): Target height of image
+            preserve_aspect_ratio (bool): Weather the image aspect ratio must be preserved after resizing.
+
+        Returns:
+            (None)
+
+        """
         super().__init__()
         self.width = width
         self.height = height
@@ -101,8 +158,8 @@ class Resize(SITransform):
         self.extend = 0
 
         assert self.width > 0 and self.height > 0
-        # Tests showed that an aspect_ratio of 6 is max
-        assert 1 / 6 < (self.width / self.height) < 6
+        # Tests have shown that an aspect_ratio of 6 is max
+        assert (1 / 6) < (self.width / self.height) < 6
 
     def __eq__(self, other):
         if not isinstance(other, Resize):
@@ -111,9 +168,6 @@ class Resize(SITransform):
                 other.preserve_aspect_ratio == self.preserve_aspect_ratio)
 
     def _apply_on_image(self):
-        """
-        Here may be room for improvements... Its working - but maybe not as efficient as possible
-        """
         self.img_width, self.img_height, _ = np.shape(self.image)
         if not self.preserve_aspect_ratio:
             self.image = cv2.resize(self.image, None, fx=self.height / self.img_height,
@@ -144,7 +198,13 @@ class Resize(SITransform):
                 self.image = np.vstack((stack_a, self.image, stack_b))
             self.annots.set_border(x_max=np.shape(self.image)[0], y_max=np.shape(self.image)[1])
             self.annots.rebase_border()
-            self.image = cv2.resize(self.image,None,fx=self.height / np.shape(self.image)[1], fy=self.width / np.shape(self.image)[0], interpolation = cv2.INTER_LINEAR)
+            self.image = cv2.resize(
+                self.image,
+                None,
+                fx=self.height / np.shape(self.image)[1],
+                fy=self.width / np.shape(self.image)[0],
+                interpolation = cv2.INTER_LINEAR
+            )
 
     def _apply_on_annots(self):
         width_ratio = self.width / self.img_width
@@ -174,11 +234,16 @@ class Resize(SITransform):
 class Mosaic(MITransform):
     def __init__(self, mode: str = "resize"):
         """
-        Stitches 4 images together to get one single image.
+
+       Creates a new image from four input images by placing them in a 2x2 order. Resizes or Crops the resulting image.
+
         Args:
-            mode (str): 'resize' or 'crop' - Defines how the images are preprocessed. Images can either be resized or
-                        cropped to fit a unify size. The unify size is determined by the dimensions of the smallest
-                        image.
+            mode (str): One of 'resize' or 'crop'. Defines weather the output image is resized or cropped to fit the
+                        input image size.
+
+        Returns:
+            (None)
+
         """
         super().__init__()
         self.mode = mode
@@ -198,7 +263,7 @@ class Mosaic(MITransform):
         img_areas = [annots.border.area for annots in self.annots_list]
         self.unify_width, self.unify_height = self.annots_list[img_areas.index(min(img_areas))].border.corners[1]
         resizer = Resize(self.unify_width, self.unify_height)
-        # cropper = Crop()
+        # cropper = Crop() ???
         for image, annots in zip(self.image_list, self.annots_list):
             if annots.width == self.unify_width and annots.height == self.unify_height:
                 prep_img, prep_annots = image, annots

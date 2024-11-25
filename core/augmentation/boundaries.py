@@ -149,11 +149,15 @@ class Boundary:
     def scale(self, x_scale: float, y_scale: float, border: bool = True):
         """
         Scales boundary by multiplying each point by a scaling matrix. Scales Border as well if border attribute is set.
+        Invalidates boundary if any axis is scales with 0.
         Args:
             x_scale (float): x or width scale factor
             y_scale (float): y or height scale factor
             border (bool): True if image border is scaled
         """
+        if x_scale == 0 or y_scale == 0:
+            self.valid = False
+            return
         matrix = np.array(
             [
                 [x_scale, 0],
