@@ -4,14 +4,21 @@ from typing import List, Dict
 
 from daugx.core.augmentation import augmentations
 from daugx.core.augmentation.annotations import Annotations
-from daugx.utils import is_executed, new_id, fetch_by_prob_list, is_in_dict
+from daugx.utils import new_id, fetch_by_prob_list, is_in_dict
 
 import numpy as np
 import daugx.core.constants as c
 
 
 class Block:
-    def __init__(self, id_: str, prev: List[str], next_: List[str], shares: List[float], category: str, **kwargs):
+    def __init__(
+            self,
+            id_: str,
+            prev: List[str],
+            next_: List[str],
+            shares: List[float],
+            category: str,
+            **kwargs):
         """
         Args:
             id_: id of the block
@@ -52,12 +59,6 @@ class Block:
         result = cls.__new__(cls)
         result.__dict__.update(self.__dict__)
         return result
-
-    def __str__(self):
-        return (f"\n---{self.id}---\nexternal_execution_probability: {self.__ext_exe_prob}"
-                f"\ninternal_execution_probability: {self.__int_exe_prob}\nis_input: {self.__is_input}\n"
-                f"is_output: {self.__is_output}\nnext: {self.__next}\nprev: {self.__prev}\ninflation: {self.inflation}"
-                f"\nshare: {self.__share}\n" + "_" * 50)
 
     @property
     def is_output(self):
@@ -177,8 +178,12 @@ class Block:
         for share in self.__shares:
             share *= (1 / sum(self.__shares))
 
-    def execute(self, image: Union[np.ndarray, List[np.ndarray]], annotations: Union[Annotations, List[Annotations]]) \
-            -> Tuple[np.ndarray, Optional[Annotations]]:
+    def execute(
+            self,
+            image: Union[np.ndarray, List[np.ndarray]],
+            annotations: Union[Annotations, List[Annotations]],
+            **kwargs
+    ) -> Tuple[np.ndarray, Optional[Annotations]]:
         """
         Returns image and annotations without changes by default. Executes augmentation if possible.
         """
@@ -196,7 +201,15 @@ class Block:
 
 
 class Input(Block):
-    def __init__(self, id_: str, next_: List[str], shares: List[float], dataset: str, n_total_data: int, filters: Optional[List[str]]):
+    def __init__(
+            self,
+            id_: str,
+            next_: List[str],
+            shares: List[float],
+            dataset: str,
+            n_total_data: int,
+            filters: Optional[List[str]]
+    ):
         """
         Dataset Block. This defines what data how to load from where.
         """
@@ -253,7 +266,16 @@ class Input(Block):
 
 
 class Augment(Block):
-    def __init__(self, id_: str, prev: List[str], next_: List[str], shares: List[float], class_name: str, exe_prob: float, **kwargs):
+    def __init__(
+            self,
+            id_: str,
+            prev: List[str],
+            next_: List[str],
+            shares: List[float],
+            class_name: str,
+            exe_prob: float,
+            **kwargs
+    ):
         """
         Initializes an Element object.
         Args:
@@ -264,6 +286,7 @@ class Augment(Block):
         super().__init__(id_, prev, next_, shares, c.NODE_TYPE_AUGMENT)
         self.__class_name = class_name
         self.int_exe_prob = exe_prob
+        self.__is_random = self.class_name.startswith(c.BLOCK_RANDOM_CLASS_IDENTIFIER)
         # Try to find class name in augmentations
         try:
             self.augmentation = getattr(augmentations, self.class_name)(**kwargs)
@@ -283,7 +306,6 @@ class Augment(Block):
         return (other.augmentation == self.augmentation and other.int_exe_prob == self.int_exe_prob
                 and other.share == self.share)
 
-
     @property
     def inflation(self) -> float:
         return self.augmentation.inflation
@@ -292,12 +314,19 @@ class Augment(Block):
     def class_name(self) -> str:
         return self.__class_name
 
-    def execute(self, images: List[np.ndarray], annotations: List[Annotations]) -> Tuple[np.ndarray, Optional[Annotations]]:
+    def execute(
+            self,
+            images: List[np.ndarray],
+            annotations: List[Annotations],
+            **kwargs
+    ) -> Tuple[np.ndarray, Optional[Annotations]]:
         """
         Executes the augmentation.
         """
-        # assert len(images) == len(annotations) == self.__n_inputs
-        image, annotations = self.augmentation.apply(images, annotations)
+        if self.__is_random:
+            image, annotations = self.augmentation.apply(images, annotations, kwargs[c.BLOCK_KWARGS_RNG_KEY])
+        else:
+            image, annotations = self.augmentation.apply(images, annotations)
         return image, annotations
 
 
@@ -310,15 +339,8 @@ class Blocks:
     def __getitem__(self, id_: str):
         return self._get_block_by_id(self.__blocks, id_)
 
-    def __str__(self):
-        string = f"n_blocks: {len(self.__blocks)}\n"
-        string += "_" * 50
-        for block in self.__blocks:
-            string += str(block)
-        return string
-
     def fetch_path(self) -> Dict[str, Dict[str, Union[Input, Augment]]]:
-        # TODO: Something is wrong here. Uses do not match with actually uses necessary
+        # TODO: Something is wrong here. Uses do not match with actual uses necessary - still the case?
         """
         Fetches one path. The schema of a path looks like the following:
         {

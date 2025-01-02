@@ -49,11 +49,12 @@ class Visualizer:
         self.image_height = None
         self.wait_key = wait_key
 
-    def show(self, image: np.ndarray, annots: Annotations):
+    def show(self, image: np.ndarray, annots: Optional[Annotations]):
         self.image = image
         self.annots = annots
         self.image_width, self.image_height = np.shape(self.image)[:2]
-        self._assemble()
+        if annots is not None:
+            self._assemble()
         cv2.imshow("AugmentedImage", self.image)
         cv2.waitKey(self.wait_key)
 

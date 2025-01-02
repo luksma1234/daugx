@@ -1,21 +1,23 @@
-import time
+
 import math
-from typing import Optional
+from typing import Optional, Tuple
 from copy import deepcopy
 
 import numpy as np
 import cv2
 
-from .transforms import (
+from daugx.core.augmentation.transforms import (
     SITransform,
     MITransform,
     IOTransform
 )
+from daugx.core import constants as c
+from daugx.core.augmentation.annotations import Annotations
 
 # TODO: This needs documentation
 # TODO: There need to be some global value for a background color
 # TODO: Random needs to be implemented
-# TODO: Add dynamic resizing / cropping, where resizes of images are done automatically depending on the target image size.
+# TODO: Remove __eq__ and replace with inspect.signature(foo) to get all input arguments
 
 class Shift(SITransform):
     def __init__(
@@ -168,7 +170,7 @@ class Resize(SITransform):
                 other.preserve_aspect_ratio == self.preserve_aspect_ratio)
 
     def _apply_on_image(self):
-        self.img_width, self.img_height, _ = np.shape(self.image)
+        self.img_width, self.img_height, _ = self.image.shape
         if not self.preserve_aspect_ratio:
             self.image = cv2.resize(self.image, None, fx=self.height / self.img_height,
                                     fy=self.width / self.img_width, interpolation=cv2.INTER_LINEAR)
@@ -232,7 +234,7 @@ class Resize(SITransform):
 
 
 class Mosaic(MITransform):
-    def __init__(self, mode: str = "resize"):
+    def __init__(self, mode: str = c.MOSAIC_RESIZE_MODE):
         """
 
        Creates a new image from four input images by placing them in a 2x2 order. Resizes or Crops the resulting image.
@@ -257,13 +259,12 @@ class Mosaic(MITransform):
         return other.mode == self.mode
 
     def _preprocess(self):
-        assert len(self.image_list) == 4, (f"Mosaic Augmentation needs exactly 4 images to stitch together. "
-                                           f"Found {len(self.image_list)}")
         preprocessed_images, preprocessed_annots = [], []
         img_areas = [annots.border.area for annots in self.annots_list]
         self.unify_width, self.unify_height = self.annots_list[img_areas.index(min(img_areas))].border.corners[1]
         resizer = Resize(self.unify_width, self.unify_height)
-        # cropper = Crop() ???
+        # TODO: Implement Random Crop
+        cropper = RandomCrop()
         for image, annots in zip(self.image_list, self.annots_list):
             if annots.width == self.unify_width and annots.height == self.unify_height:
                 prep_img, prep_annots = image, annots
@@ -331,7 +332,7 @@ class Crop(SITransform):
     def __eq__(self, other):
         if not isinstance(other, Crop):
             return False
-        return (other.x_min == self.x_min and other.y_min == self.y_min and other.x_min_abs == self.x_max
+        return (other.x_min == self.x_min and other.y_min == self.y_min and other.x_max == self.x_max
                 and other.y_max == self.y_max)
 
     def _apply_on_image(self):
@@ -345,6 +346,72 @@ class Crop(SITransform):
 
     def _apply_on_annots(self):
         self.annots.crop(self.x_min_abs, self.y_min_abs, self.x_max_abs, self.y_max_abs)
+
+
+class RandomCrop(SITransform):
+    def __init__(
+            self,
+            min_width: float = 0.2,
+            max_width: float = 1,
+            min_height: float = 0.2,
+            max_height: float = 1,
+            preserve_aspect_ratio: bool = True
+    ):
+        """
+        Crops an image by randomly selecting a crop area limited by width and height percentages.
+        Args:
+            min_width (float): Minimal width percentage of original width
+            max_width (float): Maximal width percentage of original width
+            min_height (float): Minimal height percentage of original width
+            max_height (float): Maximal height percentage of original width
+            preserve_aspect_ratio (bool): Weather the aspect ratio of the crop box matches the images aspect ratio
+        """
+        super().__init__()
+        self.min_width = min_width
+        self.max_width = max_width
+        self.min_height = min_height
+        self.max_height = max_height
+        self.preserve_aspect_ratio = preserve_aspect_ratio
+
+        # validate crop area
+        assert 0 < self.min_width < self.max_width <= 1 and 0 < self.min_height < self.max_height <= 1
+
+    def __eq__(self, other):
+        if not isinstance(other, RandomCrop):
+            return False
+        return (other.min_width == self.min_width and other.max_width == self.max_width and
+                other.min_height == self.min_height and other.max_height == self.max_height)
+
+    def apply(
+            self,
+            image: np.ndarray,
+            annots: Optional[Annotations] = None,
+            rng: Optional[np.random.Generator] = None
+    ) -> Tuple[np.ndarray, Annotations]:
+        assert rng is not None
+        img_width, img_height, _ = image.shape
+        asp_ratio = img_width / img_height
+        if self.preserve_aspect_ratio:
+            if (self.max_width - self.min_width) / asp_ratio > self.max_height:
+                self.max_height = (self.max_width - self.min_width) / asp_ratio
+        crop_box_width = rng.random() * (self.max_width - self.min_width) * img_width
+        if self.preserve_aspect_ratio:
+            crop_box_height = crop_box_width / asp_ratio
+            assert crop_box_height <= self.max_height * img_height
+        else:
+            crop_box_height = rng.random() * (self.max_height - self.min_height) * img_height
+        x_min = rng.random() * (img_width - crop_box_width)
+        y_min = rng.random() * (img_height - crop_box_height)
+        x_max = x_min + crop_box_width
+        y_max = y_min + crop_box_height
+        cropper = Crop(x_min, y_min, x_max, y_max)
+        return cropper.apply(image, annots)
+
+    def _apply_on_image(self):
+        pass
+
+    def _apply_on_annots(self):
+        pass
 
 
 class MixUp(MITransform):

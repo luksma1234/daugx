@@ -1,10 +1,10 @@
-from typing import List, Union, Tuple
+from typing import List, Union, Tuple, Optional
 from copy import deepcopy
 
 
 import daugx.core.constants as c
 
-from daugx.core.agent.block import Blocks, Block, Augment, Input
+from daugx.core._framework.block import Blocks, Block, Augment, Input
 from daugx.core.augmentation.annotations import Annotations
 from daugx.core.data.data import Dataset
 from daugx.utils import new_id, is_executed
@@ -15,8 +15,12 @@ import numpy as np
 
 
 class Executor:
-    def __init__(self, raw_block_list: List[dict], datasets: List[Dataset], gen: np.random.Generator):
-
+    def __init__(
+            self,
+            raw_block_list: List[dict],
+            datasets: List[Dataset],
+            gen: np.random.Generator,
+    ):
         # Build blocks from raw_block_list
         self.__blocks = Blocks(gen)
         self.__blocks.build(raw_block_list)
@@ -64,8 +68,8 @@ class Executor:
             return
         self._propagate(self.__path[c.PATH_AUGMENTATIONS][block.next[0]], new_data_id)
 
-    @staticmethod
     def _execute_block(
+            self,
             block: Block,
             image: Union[np.ndarray, List[np.ndarray]],
             annotations: Union[Annotations, List[Annotations]]
@@ -73,7 +77,7 @@ class Executor:
         """
         Executes one Block.
         """
-        return block.execute(image, annotations)
+        return block.execute(image, annotations, rng=self.__gen)
 
     def _reset(self):
         self.__data = {}
@@ -81,7 +85,7 @@ class Executor:
 
     def _exec_augment_block(self, block: Augment, data_id: str, new_data_id: str):
         """
-        Executed an augmentation block.
+        Executes an augmentation block.
         """
         if is_executed(block.int_exe_prob, self.__gen):
             if block.inflation < 1:
@@ -127,3 +131,39 @@ class Executor:
         assert isinstance(block, Input)
         self.__data[new_data_id] = deepcopy(self.__data[data_id])
         del self.__data[data_id]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
