@@ -153,9 +153,13 @@ DATA_OUTPUT = "output"
 # Random constants
 BASE_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
+# augmentation constants
+MOSAIC_RESIZE_MODE = "resize"
+MOSAIC_CROP_MODE = "crop"
 
-
-
+# block constants
+BLOCK_RANDOM_CLASS_IDENTIFIER = "Random"
+BLOCK_KWARGS_RNG_KEY = "rng"
 
 
 

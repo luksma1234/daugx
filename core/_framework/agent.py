@@ -1,10 +1,10 @@
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 import warnings
 
 from daugx.core.augmentation.annotations import Annotations
 from daugx.utils.misc import load_json, get_seed, is_api_key, get_config_from_api, is_in_dict
 from daugx.utils.visualizer import Visualizer, Colors
-from daugx.core.agent.executor import Executor
+from daugx.core._framework.executor import Executor
 from daugx.core.data.data import Dataset, DataPackage
 from daugx.core.data.loader import InitialLoader
 from daugx.core.data.filter import FilterSequence, Filter
@@ -49,10 +49,10 @@ class Agent:
         self.seed = seed
         if self.seed is None:
             self.seed = get_seed()
-        self.__gen = np.random.default_rng(self.seed)
+        self.__rng = np.random.default_rng(self.seed)
         warnings.warn(f"daugx - Seed for execution: {self.seed}")
         self._init_datasets()
-        self.executor = Executor(self.config[c.CONFIG_KEY_BLOCKS], self.datasets, self.__gen)
+        self.executor = Executor(self.config[c.CONFIG_KEY_BLOCKS], self.datasets, self.__rng)
 
     def fetch(self, debug=False, wait_key: int = 0) -> Tuple[np.ndarray, Annotations]:
         """
@@ -81,7 +81,7 @@ class Agent:
         Initializes all datasets defined in the self.config file. Loads annotations and filters in RAM.
         """
         for dataset in self.datasets_config:
-            initial_loader = InitialLoader(self.__gen, **dataset[c.CONFIG_KEY_INIT])
+            initial_loader = InitialLoader(self.__rng, **dataset[c.CONFIG_KEY_INIT])
             data_packages = initial_loader.load()
             if len(data_packages) == 0:
                 warnings.warn(f"Loaded an empty dataset. Please verify your loading query: {dataset[c.CONFIG_KEY_INIT][c.CONFIG_KEY_QUERY]}")
@@ -93,13 +93,13 @@ class Agent:
             if is_in_dict(c.CONFIG_KEY_BACKGROUND_PERCENTAGE, dataset):
                 self.datasets.append(
                     Dataset(
-                        dataset[c.CONFIG_KEY_ID], data_packages, filters, dataset[c.CONFIG_KEY_BACKGROUND_PERCENTAGE], self.__gen
+                        dataset[c.CONFIG_KEY_ID], data_packages, filters, dataset[c.CONFIG_KEY_BACKGROUND_PERCENTAGE], self.__rng
                     )
                 )
             else:
                 self.datasets.append(
                     Dataset(
-                        dataset[c.CONFIG_KEY_ID], data_packages, filters, None, self.__gen
+                        dataset[c.CONFIG_KEY_ID], data_packages, filters, None, self.__rng
                     )
                 )
 
@@ -120,7 +120,7 @@ class Agent:
         return filters
 
     @staticmethod
-    def _visualize(image: np.ndarray, annots: Annotations, wait_key: int):
+    def _visualize(image: np.ndarray, annots: Optional[Annotations], wait_key: int):
         vis = Visualizer(wait_key=wait_key)
         vis.show(image, annots)
 

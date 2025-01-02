@@ -14,11 +14,13 @@ class SITransform(ABC):
         self.image = None
         self.annots = None
         self.inflation = 1
+        self.rng = None
 
     def apply(
             self,
             image: np.ndarray,
-            annots: Optional[Annotations] = None
+            annots: Optional[Annotations] = None,
+            rng: Optional[np.random.Generator] = None
     ) -> Tuple[np.ndarray, Annotations]:
         """
         Applies the transformation to the image and its annotations.
@@ -27,9 +29,11 @@ class SITransform(ABC):
                                           initialized with image.
             annots (Optional[Annotations]): Annotations of image. Only necessary as input if transform was not
                                             initialized with annotations.
+            rng (Optional[np.random.Generator]): Random Number Generator.
         Returns:
             (Tuple[np.ndarray, Annotations]): Tuple of transformed image and transformed annotations
         """
+        self.rng = rng
         self.image = image
         self.annots = annots
         if self.image is None:
@@ -78,20 +82,24 @@ class MITransform(ABC):
         self.annots_list = []
         self.image = None
         self.annots = None
+        self.rng = None
 
     def apply(
             self,
             image_list: List[np.ndarray],
-            annots_list: Optional[List[Annotations]] = None
+            annots_list: Optional[List[Annotations]] = None,
+            rng: Optional[np.random.Generator] = None
     ) -> Tuple[np.ndarray, Annotations]:
         """
         Applies the transformation to the image and its annotations.
         Args:
             image_list (List[np.ndarray]): Any slist of images as numpy array.
             annots_list (Optional[List[Annotations]]): Annotations of images.
+            rng (Optional[np.random.Generator]): Random Number Generator.
         Returns:
             (Tuple[np.ndarray, Annotations]): Tuple of transformed image and transformed annotations
         """
+        self.rng = rng
         self.image_list = image_list
         self.annots_list = annots_list
         self._preprocess()
@@ -127,7 +135,7 @@ class IOTransform(ABC):
     Image Only Transform
     """
     def __init__(self):
-        pass
+        self.rng = None
 
     @abstractmethod
     def __eq__(self, other):

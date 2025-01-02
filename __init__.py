@@ -1,1 +1,1 @@
-from daugx.core.agent.agent import Agent
+from daugx.core._framework.agent import Agent
