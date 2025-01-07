@@ -130,8 +130,11 @@ NODE_TYPE_FILTER = "filter"
 NODE_TYPE_AUGMENT = "augment"
 NODE_TYPE_DIVIDE = "divide"
 
+NODE_DATA_N_TOTAL_DATA = "n_total_data"
+NODE_DATA_EXE_PROB = "exe_prob"
+
 # config constants
-CONFIG_KEY_BLOCKS = "blocks"
+CONFIG_KEY_NODES = "nodes"
 CONFIG_KEY_DATASETS = "datasets"
 CONFIG_KEY_INIT = "init"
 CONFIG_KEY_FILTER = "filter"
