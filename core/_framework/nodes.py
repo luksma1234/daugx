@@ -169,6 +169,10 @@ class Node:
     def uses(self):
         return self.__uses
 
+    @property
+    def category(self):
+        return self.__category
+
     def add_use(self):
         self.__uses += 1
 
@@ -224,7 +228,8 @@ class Node:
             inflation=self.inflation,
             p=self.int_exe_prob,
             derives_from=self.id,
-            data_id=self.data_id
+            data_id=self.data_id,
+            category=self.category
         )
         # include the share into the external execution probability
         derivative.ext_exe_prob = self.ext_exe_prob
@@ -232,7 +237,66 @@ class Node:
         return derivative
 
 
-class NodeTree:
+class Branch:
+    def __init__(self):
+        # TODO: Add Iterator to this method. The iterator should always return the next node to be executed.
+        # dict with node IDs as key and the node itself as value
+        self.__nodes: Dict[str, Node] = {}
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        pass
+
+    @property
+    def nodes(self):
+        return self.__nodes
+
+    def add(self, node: Node):
+        """
+        Adds one node to this branch. Validates dtype of node.
+
+        Args:
+            node (Node): The node to be added
+        """
+        assert isinstance(node, Node)
+        self.__nodes[node.id] = node
+
+    def update(self, branch: Self):
+        """
+        Merges another branch into this branch. Adds all nodes of the other branch to this branch.
+
+        Args:
+            branch (Branch): The branch to be merged into this branch
+        """
+        assert isinstance(branch, Branch)
+        for node in branch.nodes.values():
+            self.add(node)
+
+    def has_node(self, node: Node) -> bool:
+        """
+        Checks if a node ID exists in this branch.
+        Args:
+            node (Node): The node to be checked
+
+        Returns:
+            (bool) True if node was found in this branch
+            (bool) False if node was not found in branch
+        """
+        return node.id in self.__nodes
+
+    def add_use(self, node: Node):
+        """
+        Adds one use to the specified Node.
+        Args:
+            node (Node): The node to add one use to
+        """
+        assert node.is_input
+        self.__nodes[node.id].add_use()
+
+
+class Tree:
 
     def __init__(self, rng: np.random.Generator, raw_nodes: List[dict]):
         self.__rng = rng
@@ -247,9 +311,8 @@ class NodeTree:
             self._init_ext_exe_probs(output)
 
     def branch(self) -> Dict[str, Dict[str, Node]]:
-        # TODO: Something is wrong here. Uses do not match with actual uses necessary - still the case?
         """
-        Fetches one path. The schema of a path looks like the following:
+        Fetches one branch. The schema of a branch looks like the following:
         {
             "inputs": {
                 "input_block_1_ID": Input_Block_1,
@@ -270,7 +333,7 @@ class NodeTree:
             [output_block.ext_exe_prob for output_block in output_blocks],
             self.__rng
         )
-        path_blocks = self.root(block)
+        path_blocks = self._root(block)
         return {
             c.PATH_INPUTS: {
                 input_block.id: input_block for input_block in self._get_inputs(list(path_blocks.values()))
@@ -281,32 +344,36 @@ class NodeTree:
             }
         }
 
-    def root(self, node: Node) -> Dict[str, Node]:
+    def _root(self, node: Node) -> Branch:
         """
-        Walks downstream until input block is reached. Returns dict of block ID and block object pairs of all blocks
-        passed by.
+        Walks downstream until all node inputs have been satisfied. Returns dict of node IDs and node object pairs of
+        all nodes passed by.
+        TODO: Break down this method into sub methods
+
+        Args:
+            node (Node): The node to start rooting from
         """
-        nodes = {node.id: node}
+        branch = Branch()
         if not node.is_input:
             # handle inflationary sub paths
             if node.inflation > 1:
                 for variant_index in range(node.inflation):
                     # chose one variant
-                    chosen_block_id = fetch_by_prob_list(
+                    chosen_variant_id = fetch_by_prob_list(
                         node.prev,
                         [node.prev_ext_exe_probs[index] / sum(node.prev_ext_exe_probs)
                          for index, _ in enumerate(node.prev_ext_exe_probs)],
                         self.__rng
                     )
                     # add blocks one by one, this makes sure we can add one use to duplicate input blocks
-                    for variant_block_id, variant_block in self.root(
-                            self._get_derived_node_by_id(chosen_block_id)).items():
-                        if variant_block_id not in nodes:
-                            nodes[variant_block_id] = variant_block
-                        # if block duplicate is input block - add use
-                        if variant_block.is_input:
+                    for variant_node in self._root(
+                            self._get_derived_node_by_id(chosen_variant_id)).nodes.values():
+                        if not branch.has_node(variant_node):
+                            branch.add(variant_node)
+                        # if node duplicate is input node - add use
+                        if variant_node.is_input:
                             # now block with variant block id is input block and therefore has the add_use method.
-                            nodes[variant_block_id].add_use()
+                            branch.add_use(variant_node)
             else:
                 chosen_block_id = fetch_by_prob_list(
                     node.prev,
@@ -314,8 +381,8 @@ class NodeTree:
                      for index, _ in enumerate(node.prev_ext_exe_probs)],
                     self.__rng
                 )
-                nodes.update(self.root(self._get_derived_node_by_id(chosen_block_id)))
-        return nodes
+                branch.update(self._root(self._get_derived_node_by_id(chosen_block_id)))
+        return branch
 
     def _grow(self):
         """
@@ -349,7 +416,7 @@ class NodeTree:
 
     def _map_derivative(self, derivative: Node, next_share_index: int) -> Node:
         """
-        Maps base previous and next nodes of derivatives to the correct variants.
+        Maps base -previous and -next nodes of derivatives to the correct variants.
         """
         # Get previous for derivative, by selecting the variant, where derivative is next
         base_prev = derivative.prev
@@ -377,7 +444,7 @@ class NodeTree:
 
     def _get_derived_node_by_id(self, derived_node_id: str):
         """
-        Gets a base node by its ID.
+        Gets a derived node by its ID.
         """
         for node in self.__derived_nodes:
             if node.id == derived_node_id:
@@ -468,3 +535,32 @@ class NodeTree:
         Returns all augment nodes of the provided list.
         """
         return [node for node in nodes if not node.is_input]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
