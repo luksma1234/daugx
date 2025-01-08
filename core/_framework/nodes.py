@@ -1,4 +1,5 @@
 from typing import Optional, List, Self, Dict
+from copy import deepcopy
 
 import daugx.core.constants as c
 from daugx.utils import new_id, fetch_by_prob_list
@@ -26,9 +27,10 @@ class Node:
             prev (List[str]): List of all previous node IDs
             next_ (List[str]): List of all next node IDs
             shares (List[float]): Probabilities for each next node
-            inflation (int): The amount of data in queue to pass this node
+            inflation (int): The amount of data origins necessary to pass this node
             p (float): The execution probability of this node
             derives_from (Optional[str]): The ID of the Node this Node derives from
+            data_id (Optional[str]): The id from which the params for this node can be extracted
         """
         self.__next: List[str] = next_
         self.__prev: List[str] = prev
@@ -53,7 +55,7 @@ class Node:
         # External execution probability
         self.__ext_exe_prob: float = 1.0
         self.__prev_ext_exe_probs = None
-        self.__input_queue: Optional[List[str]] = None
+        self.__input_origin: Optional[List[str]] = None
         self.__uses = 1
 
     def __hash__(self):
@@ -145,8 +147,8 @@ class Node:
         self.__int_exe_prob = value
 
     @property
-    def input_queue(self):
-        return self.__input_queue
+    def input_origin(self):
+        return self.__input_origin
 
     @property
     def data_id(self):
@@ -176,8 +178,8 @@ class Node:
     def add_use(self):
         self.__uses += 1
 
-    def add_to_queue(self, input_id: str):
-        self.__input_queue.append(input_id)
+    def add_origin(self, input_id: str):
+        self.__input_origin.append(input_id)
 
     def add_prev(self, prev: str):
         self.__prev.append(prev)
@@ -209,7 +211,7 @@ class Node:
             share *= (1 / sum(self.__shares))
 
     def reset(self):
-        self.__input_queue = None
+        self.__input_origin = None
 
     def derive(self, derive_id: str, share_index: int) -> Self:
         """
@@ -242,26 +244,62 @@ class Branch:
         # TODO: Add Iterator to this method. The iterator should always return the next node to be executed.
         # dict with node IDs as key and the node itself as value
         self.__nodes: Dict[str, Node] = {}
+        self.__node_data: Dict[str, dict] = {}
+        self.__current_node: Optional[Node] = None
+        self.__input_iter = 0
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        pass
+        """
+        Always returns the next node to be executed. Stops Iteration on Output Node.
+        """
+        if self.current_node is not None:
+            if self.current_node.is_output:
+                raise StopIteration
+            next_node = self._get_node_by_id(self.current_node.next[0])
+            next_node.add_origin(self.current_node.id)
+            if len(next_node.input_origin) < next_node.inflation:
+                self.__current_node = self.inputs[self.__input_iter]
+                self.__input_iter += 1
+                return self.current_node, self.current_data
+            self.__current_node = next_node
+            return self.current_node
+        else:
+            self.__current_node = self.inputs[self.__input_iter]
+            return self.current_node
 
     @property
     def nodes(self):
         return self.__nodes
 
-    def add(self, node: Node):
+    @property
+    def inputs(self):
+        return [node for node in self.__nodes.values() if node.is_input]
+
+    @property
+    def current_node(self):
+        return self.__current_node
+
+    @property
+    def current_data(self):
+        if self.current_node is None:
+            return None
+        return self.__node_data[self.current_node.id]
+
+
+    def add(self, node: Node, node_data: dict):
         """
         Adds one node to this branch. Validates dtype of node.
 
         Args:
             node (Node): The node to be added
+            node_data (dict): The data for this node
         """
         assert isinstance(node, Node)
         self.__nodes[node.id] = node
+        self.__node_data[node.id] = node_data
 
     def update(self, branch: Self):
         """
@@ -271,8 +309,9 @@ class Branch:
             branch (Branch): The branch to be merged into this branch
         """
         assert isinstance(branch, Branch)
-        for node in branch.nodes.values():
-            self.add(node)
+        self._reset()
+        for node, node_data in zip(branch.nodes.values(), branch.__node_data.values()):
+            self.add(node, node_data)
 
     def has_node(self, node: Node) -> bool:
         """
@@ -295,6 +334,17 @@ class Branch:
         assert node.is_input
         self.__nodes[node.id].add_use()
 
+    def _get_node_by_id(self, node_id: str):
+        """
+        Gets a node by its ID.
+        """
+        for node in self.__nodes.values():
+            if node.id == node_id:
+                return node
+        raise ValueError
+
+    def _reset(self):
+        self.__current_node = None
 
 class Tree:
 
@@ -310,39 +360,18 @@ class Tree:
         for output in self._get_outputs(self.__derived_nodes):
             self._init_ext_exe_probs(output)
 
-    def branch(self) -> Dict[str, Dict[str, Node]]:
+    def branch(self) -> Branch:
         """
-        Fetches one branch. The schema of a branch looks like the following:
-        {
-            "inputs": {
-                "input_block_1_ID": Input_Block_1,
-                "input_block_1_ID": Input_Block_2,
-                ...
-            },
-            "augmentations": {
-                "Augmentation_Block_1_ID": Augmentation_Block_1,
-                "Augmentation_Block_2_ID": Augmentation_Block_2,
-                ...
-            }
-        }
+        Fetches one branch.
         """
         output_blocks = self._get_outputs(self.__derived_nodes)
         # chose one output block
-        block = fetch_by_prob_list(
+        node = fetch_by_prob_list(
             output_blocks,
             [output_block.ext_exe_prob for output_block in output_blocks],
             self.__rng
         )
-        path_blocks = self._root(block)
-        return {
-            c.PATH_INPUTS: {
-                input_block.id: input_block for input_block in self._get_inputs(list(path_blocks.values()))
-            },
-            c.PATH_AUGMENTATIONS: {
-                augmentation_block.id: augmentation_block for augmentation_block in
-                self._get_augments(list(path_blocks.values()))
-            }
-        }
+        return self._root(node)
 
     def _root(self, node: Node) -> Branch:
         """
