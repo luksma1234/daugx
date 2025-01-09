@@ -5,7 +5,8 @@ from .misc import (
     fetch_by_prob_list,
     load_json,
     get_seed,
-    is_in_dict
+    is_in_dict,
+    norm_list
 )
 
 

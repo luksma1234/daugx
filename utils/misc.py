@@ -4,7 +4,7 @@ Collection of unreferrable functions.
 
 import uuid
 import random
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import json
 
 import daugx.core.constants as c
@@ -33,6 +33,7 @@ def get_random(gen: np.random.Generator) -> float:
 
 def get_seed() -> int:
     # The in build random method is used to initialize a seed for the np rng
+    # This makes sure the seed generation does not interfere with data generation
     return int(random.random() * 90000) + 10000
 
 
@@ -139,8 +140,13 @@ def transpose_image(image: np.ndarray):
     elif len(np.shape(image)) == 3:
         return np.transpose(image, axes=[1, 0, 2])
     else:
-        raise ValueError("Unable to interpret image.")
+        return NotImplemented
 
+def norm_list(lst: List[Union[int, float]]) -> List[float]:
+    """
+    Normalizes any list of int or float.
+    """
+    return [item / sum(lst) for item in lst]
 
 
 

@@ -2,7 +2,7 @@ from typing import Optional, List, Self, Dict
 from copy import deepcopy
 
 import daugx.core.constants as c
-from daugx.utils import new_id, fetch_by_prob_list
+from daugx.utils import new_id, fetch_by_prob_list, norm_list
 
 import numpy as np
 
@@ -168,6 +168,12 @@ class Node:
         self.prev_ext_exe_probs = value
 
     @property
+    def norm_prev_ext_exe_probs(self):
+        if self.__prev_ext_exe_probs is not None:
+            return norm_list(self.__prev_ext_exe_probs)
+        return None
+
+    @property
     def uses(self):
         return self.__uses
 
@@ -241,12 +247,13 @@ class Node:
 
 class Branch:
     def __init__(self):
-        # TODO: Add Iterator to this method. The iterator should always return the next node to be executed.
         # dict with node IDs as key and the node itself as value
         self.__nodes: Dict[str, Node] = {}
         self.__node_data: Dict[str, dict] = {}
         self.__current_node: Optional[Node] = None
-        self.__input_iter = 0
+        self.__inputs: Optional[List[Node]] = None
+        self.__input_index: int = 0
+        self.__input_uses: int = 0
 
     def __iter__(self):
         return self
@@ -261,22 +268,18 @@ class Branch:
             next_node = self._get_node_by_id(self.current_node.next[0])
             next_node.add_origin(self.current_node.id)
             if len(next_node.input_origin) < next_node.inflation:
-                self.__current_node = self.inputs[self.__input_iter]
-                self.__input_iter += 1
+                self.__current_node = self._next_input()
                 return self.current_node, self.current_data
             self.__current_node = next_node
             return self.current_node
         else:
-            self.__current_node = self.inputs[self.__input_iter]
+            self._init_inputs()
+            self.__current_node = self._next_input()
             return self.current_node
 
     @property
     def nodes(self):
         return self.__nodes
-
-    @property
-    def inputs(self):
-        return [node for node in self.__nodes.values() if node.is_input]
 
     @property
     def current_node(self):
@@ -288,8 +291,43 @@ class Branch:
             return None
         return self.__node_data[self.current_node.id]
 
+    @property
+    def inputs(self):
+        return self.__inputs
 
-    def add(self, node: Node, node_data: dict):
+    def update(self, branch: Self):
+        """
+        Merges another branch into this branch. Adds all nodes of the other branch to this branch.
+        Adds use to node if it already exists in this branch.
+
+        Args:
+            branch (Branch): The branch to be merged into this branch
+        """
+        assert isinstance(branch, Branch)
+        self._reset()
+        for node, node_data in zip(branch.nodes.values(), branch.__node_data.values()):
+            if self._has_node(node):
+                self._add_use(node)
+            else:
+                self._add(node, node_data)
+
+    def _init_inputs(self):
+        self.__inputs = [node for node in self.__nodes.values() if node.is_input]
+
+    def _next_input(self):
+        """
+        Returns the logical next input from available inputs. Makes sure input uses are taken into account.
+        """
+        assert len(self.inputs) < self.__input_index
+        next_input = self.inputs[self.__input_index]
+        if next_input.uses > self.__input_uses:
+            self.__input_uses += 1
+        else:
+            self.__input_uses = 0
+            self.__input_index += 1
+        return next_input
+
+    def _add(self, node: Node, node_data: dict):
         """
         Adds one node to this branch. Validates dtype of node.
 
@@ -301,19 +339,7 @@ class Branch:
         self.__nodes[node.id] = node
         self.__node_data[node.id] = node_data
 
-    def update(self, branch: Self):
-        """
-        Merges another branch into this branch. Adds all nodes of the other branch to this branch.
-
-        Args:
-            branch (Branch): The branch to be merged into this branch
-        """
-        assert isinstance(branch, Branch)
-        self._reset()
-        for node, node_data in zip(branch.nodes.values(), branch.__node_data.values()):
-            self.add(node, node_data)
-
-    def has_node(self, node: Node) -> bool:
+    def _has_node(self, node: Node) -> bool:
         """
         Checks if a node ID exists in this branch.
         Args:
@@ -325,7 +351,7 @@ class Branch:
         """
         return node.id in self.__nodes
 
-    def add_use(self, node: Node):
+    def _add_use(self, node: Node):
         """
         Adds one use to the specified Node.
         Args:
@@ -352,66 +378,73 @@ class Tree:
         self.__rng = rng
         self.__base_nodes = []
         self.__derived_nodes = []
-        self.__node_data = {}
+        self.__node_params = {}
         self.__node_mapping = {}
         self._init_base_nodes(raw_nodes)
         self._init_node_mapping()
         self._grow()
-        for output in self._get_outputs(self.__derived_nodes):
+        self.__outputs = self._get_outputs(self.__derived_nodes)
+        for output in self.__outputs:
             self._init_ext_exe_probs(output)
 
     def branch(self) -> Branch:
         """
         Fetches one branch.
         """
-        output_blocks = self._get_outputs(self.__derived_nodes)
-        # chose one output block
-        node = fetch_by_prob_list(
-            output_blocks,
-            [output_block.ext_exe_prob for output_block in output_blocks],
-            self.__rng
+        return self._root(
+            fetch_by_prob_list(
+                self.__outputs,
+                [output_block.ext_exe_prob for output_block in self.__outputs],
+                self.__rng
+            )
         )
-        return self._root(node)
 
     def _root(self, node: Node) -> Branch:
         """
-        Walks downstream until all node inputs have been satisfied. Returns dict of node IDs and node object pairs of
-        all nodes passed by.
-        TODO: Break down this method into sub methods
+        Walks Tree downstream until this node and all its predecessors are satisfied with connections according to their
+        inflation value. Returns one branch.
 
         Args:
             node (Node): The node to start rooting from
+
+        Returns:
+            (Branch): The branch downwards from node
         """
         branch = Branch()
         if not node.is_input:
-            # handle inflationary sub paths
             if node.inflation > 1:
-                for variant_index in range(node.inflation):
-                    # chose one variant
-                    chosen_variant_id = fetch_by_prob_list(
-                        node.prev,
-                        [node.prev_ext_exe_probs[index] / sum(node.prev_ext_exe_probs)
-                         for index, _ in enumerate(node.prev_ext_exe_probs)],
-                        self.__rng
-                    )
-                    # add blocks one by one, this makes sure we can add one use to duplicate input blocks
-                    for variant_node in self._root(
-                            self._get_derived_node_by_id(chosen_variant_id)).nodes.values():
-                        if not branch.has_node(variant_node):
-                            branch.add(variant_node)
-                        # if node duplicate is input node - add use
-                        if variant_node.is_input:
-                            # now block with variant block id is input block and therefore has the add_use method.
-                            branch.add_use(variant_node)
+                self._root_inflationary(node, branch)
             else:
-                chosen_block_id = fetch_by_prob_list(
-                    node.prev,
-                    [node.prev_ext_exe_probs[index] / sum(node.prev_ext_exe_probs)
-                     for index, _ in enumerate(node.prev_ext_exe_probs)],
-                    self.__rng
-                )
-                branch.update(self._root(self._get_derived_node_by_id(chosen_block_id)))
+                variant_id = self._random_variant_id(node)
+                branch.update(self._root(self._get_derived_node_by_id(variant_id)))
         return branch
+
+    def _root_inflationary(self, node: Node, branch: Branch):
+        """
+        Roots an inflationary node
+        """
+        for variant_index in range(node.inflation):
+            variant_id = self._random_variant_id(node)
+            # Update this branch with root-branch of node
+            branch.update(self._root(self._get_derived_node_by_id(variant_id)))
+        return branch
+
+    def _random_variant_id(self, node):
+        """
+        Chooses one previous node id from node (variant).
+
+        Args:
+            node (Node): Node to chose variant from
+
+        Returns:
+            (str): ID of the chosen variant
+        """
+        assert not node.is_input
+        return fetch_by_prob_list(
+            node.prev,
+            node.norm_prev_ext_exe_probs,
+            self.__rng
+        )
 
     def _grow(self):
         """
@@ -507,7 +540,7 @@ class Tree:
             inflation = raw_node[c.NODE_INFLATION_STR]
         else:
             inflation = 1
-        self.__node_data[id_] = params
+        self.__node_params[id_] = params
         return Node(id_, prev, next_, shares, inflation, category)
 
     def _init_base_nodes(self, raw_nodes: List[dict]):
@@ -520,16 +553,16 @@ class Tree:
         the data for each node. The internal execution probability for input nodes is calculated by the amount of data
         this node provides, divided by the sum of data all input nodes provide.
         """
-        inputs_data = [self.__node_data[input_.id] for input_ in self._get_inputs(self.__base_nodes)]
+        inputs_data = [self.__node_params[input_.id] for input_ in self._get_inputs(self.__base_nodes)]
         # calculate the sum of all data inputs
-        inputs_n_data_sum = sum([input_data[c.NODE_DATA_N_TOTAL_DATA] for input_data in inputs_data])
+        n_total_input_data = sum([input_data[c.NODE_DATA_N_TOTAL_DATA] for input_data in inputs_data])
         for node in self.__base_nodes:
-            node_data = self.__node_data.get(node.id)
+            node_data = self.__node_params.get(node.id)
             if node_data is None:
                 continue
             match node.category:
                 case c.NODE_TYPE_INPUT:
-                    node.int_exe_prob = node_data[c.NODE_DATA_N_TOTAL_DATA] / inputs_n_data_sum
+                    node.int_exe_prob = node_data[c.NODE_DATA_N_TOTAL_DATA] / n_total_input_data
                 case c.NODE_TYPE_AUGMENT:
                     node.int_exe_prob = node_data[c.NODE_DATA_EXE_PROB]
 
