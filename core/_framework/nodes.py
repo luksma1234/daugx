@@ -1,5 +1,4 @@
 from typing import Optional, List, Self, Dict
-from copy import deepcopy
 
 import daugx.core.constants as c
 from daugx.utils import new_id, fetch_by_prob_list, norm_list
@@ -45,8 +44,7 @@ class Node:
         # A Node is set if it has None or exactly one next Node
         self.__is_set: bool = len(self.__next) <= 1
         # Shares is a list of all splits. Sum of split shares must equal 1.
-        self.__shares: List[float] = shares
-        self._normalize_shares()
+        self.__shares: List[float] = norm_list(shares)
         self.__variations: int = len(self.__shares)
         self.__derives_from: Optional[str] = derives_from
         self.__share: Optional[float] = None
@@ -187,15 +185,6 @@ class Node:
     def add_origin(self, input_id: str):
         self.__input_origin.append(input_id)
 
-    def add_prev(self, prev: str):
-        self.__prev.append(prev)
-
-    def adjust_ext_exe_prob(self, factor: float):
-        """
-        Multiplies the external execution probability by any multiplier.
-        """
-        self.__ext_exe_prob *= factor
-
     def set(self, index: int):
         """
         Sets the node with a share index. Since multiple nodes can branch off one node, and for each branch a
@@ -206,15 +195,13 @@ class Node:
             index (int): The share index to be set
         """
         assert 0 <= index < self.__variations
+        if self.is_set:
+            return
         if not self.__is_output:
             self.__next = [self.__next[index]]
         self.__share = self.__shares[index]
-        self.adjust_ext_exe_prob(self.__share)
+        self.ext_exe_prob *= self.__share
         self.__is_set = True
-
-    def _normalize_shares(self):
-        for share in self.__shares:
-            share *= (1 / sum(self.__shares))
 
     def reset(self):
         self.__input_origin = None
@@ -239,9 +226,9 @@ class Node:
             data_id=self.data_id,
             category=self.category
         )
-        # include the share into the external execution probability
+        # set initial external execution probability and set derivative
         derivative.ext_exe_prob = self.ext_exe_prob
-        derivative.adjust_ext_exe_prob(self.shares[share_index])
+        derivative.set(share_index)
         return derivative
 
 
@@ -373,7 +360,6 @@ class Branch:
         self.__current_node = None
 
 class Tree:
-
     def __init__(self, rng: np.random.Generator, raw_nodes: List[dict]):
         self.__rng = rng
         self.__base_nodes = []
