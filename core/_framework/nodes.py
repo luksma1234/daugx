@@ -7,6 +7,14 @@ import numpy as np
 
 
 class Node:
+    # Limit RAM use by predefining all class variables
+    # Is it possible to predefine the datatype and therefore use even less RAM?
+    __slots__ = (
+        "__next", "__prev", "__id", "__data_id", "__inflation", "__category", "__is_output", "__is_input",
+         "__is_set", "__shares", "__variations", "__derives_from", "__share", "__int_exe_prob",
+         "__ext_exe_prob", "__prev_ext_exe_probs", "__input_origin", "__uses"
+    )
+
     def __init__(
             self,
             id_: str,
@@ -557,7 +565,7 @@ class Tree:
         Node mapping defines what base node ID refers to which derived node ID(s).
         """
         for node in self.__base_nodes:
-            derived_node_ids = [new_id(self.__rng) for share in node.shares]
+            derived_node_ids = [new_id(self.__rng) for _ in node.shares]
             self.__node_mapping[node.id] = derived_node_ids
 
     @staticmethod

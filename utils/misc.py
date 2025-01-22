@@ -2,7 +2,7 @@
 Collection of unreferrable functions.
 """
 
-import uuid
+from uuid import uuid5
 import random
 from typing import List, Tuple, Union
 import json
@@ -24,7 +24,7 @@ def is_in_dict(key: str, dict_: dict):
 
 
 def new_id(gen: np.random.Generator) -> str:
-    return str(uuid.uuid5(namespace=c.BASE_UUID, name=str(get_random(gen))))
+    return str(uuid5(namespace=c.BASE_UUID, name=str(get_random(gen))))
 
 
 def get_random(gen: np.random.Generator) -> float:
