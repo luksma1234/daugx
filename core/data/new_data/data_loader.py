@@ -12,6 +12,7 @@ import xmltodict
 import csv
 import cv2
 
+from pathlib import Path
 
 
 class DataLoader(ABC):
@@ -20,13 +21,19 @@ class DataLoader(ABC):
     """
     def __init__(self, rng: np.random.Generator):
         self.__rng = rng
-        self.__loader_type = None
+        self.__loader_type: Optional[str] = None
+        # Flag weather the preload has already loaded all items.
+        self.__is_fully_loaded: bool = False
 
     @property
     def loader_type(self):
         if self.__loader_type is None:
             raise NotImplementedError
         return self.__loader_type
+
+    @property
+    def is_fully_loaded(self):
+        return self.__is_fully_loaded
 
     @abstractmethod
     def preload(self) -> List[DataItem]:
@@ -38,7 +45,7 @@ class DataLoader(ABC):
     @abstractmethod
     def load(self, preloaded_item: DataItem) -> DataItem:
         """
-        This method loads one data item of a specific data type.
+        This method loads one data item of a specific data type. Must not be called if is_fully_loaded flag is set.
 
         Returns:
             (List[DataItem]): List of loaded data items.
@@ -69,6 +76,8 @@ class ImageLoader(DataLoader):
         self.__types = types
         self.__recursive = recursive
         self.__loader_type = c.MODALITY_TYPE_IMAGE
+        # preload does only load image metadata. The image itself is loaded by the load method.
+        self.__fully_loaded = False
 
     def preload(self) -> List[ImageItem]:
         item_list = []
@@ -101,36 +110,6 @@ class ImageLoader(DataLoader):
                 return True
         return False
 
-
-
-class AnnotationLoader(DataLoader):
-
-    def __init__(self, aql: str):
-        super().__init__()
-        self.__aql = aql
-
-
-
-    def load(self) -> List[AnnotationItem]:
-        pass
-
-    def _transform(self, raw_data: dict) -> AnnotationItem:
-        pass
-
-class ImageAnnotationLoader(AnnotationLoader):
-    pass
-
-class LabelLoader(DataLoader):
-    pass
-
-class AudioLoader(DataLoader):
-    pass
-
-class AudioAnnotationLoader(AnnotationLoader):
-    pass
-
-
-# TODO: Query must fit for all annotations - not only image. Maybe the query can be transformed into an iterator.
 
 class AQL:
     """
@@ -166,16 +145,25 @@ class AQL:
         self.__query_string = query_string
         self.__keywords: List[str] = []
         self.__arguments: List[str] = []
-        self.__indexes: List[int] = []
-
-        self._fail_counter = 0
-
+        self.__indices: Optional[List[int]] = None
+        # failed flag is set if loading with indices failed. This will trigger the up of indices from the next layer
+        self.failed: bool = False
+        # Counts all fails that happened
+        self.__fail_counter = 0
         self._separate()
         self._validate()
-        self._get_indexes()
 
-        assert len(self.keywords) == len(self.loading_queries), ("Found more keywords that loading queries in Query. "
-                                                                 "Please verify and try again.")
+        assert len(self.keywords) == len(self.loading_queries)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.indices is None:
+            self._get_indexes()
+        else:
+            self._up_indices()
+        return self.__indices
 
     @property
     def mode(self):
@@ -190,11 +178,11 @@ class AQL:
         return self._index_loading_queries()
 
     @property
-    def indexes(self):
-        return self.__indexes
+    def indices(self):
+        return self.__indices
 
     def _get_indexes(self):
-        self.__indexes = [0] * max(
+        self.__indices = [0] * max(
             [loading_query.count(c.QUERY_UNDEFINED_ITERATOR) for loading_query in self.__arguments]
         )
 
@@ -216,55 +204,29 @@ class AQL:
             AssertionError: If keyword is not part of the QUERY_KEYWORDS_LIST.
         """
         for keyword in self.keywords:
-            assert keyword in c.QUERY_KEYWORDS_LIST, f"Keyword '{keyword}' is unknown."
+            assert keyword in c.QUERY_KEYWORDS_LIST
 
-        # Check loading query for validity here
+        # Check arguments for validity here
 
-    # TODO: Here we have to do some work. How should custom work? Maybe custom isn't even necessary? Come up with examples
-    def _handle_custom(self):
-        """
-        Handles all custom queries. Separates custom queries and lists them with their query index.
-        e.g.: CUSTOM {example}[n][1],{example}[n][2]
-        -> {
-            ...,
-            CUSTOM_0: "{example}[n][1]",
-            CUSTOM_1: "{example}[n][2]"
-           }
-        """
-        if c.QUERY_CUSTOM in self.keywords:
-            custom_index = self.keywords.index(c.QUERY_CUSTOM)
-            custom_query = self.__arguments[custom_index]
-            del self.keywords[custom_index]
-            del self.__arguments[custom_index]
-            # If multiple queries are listed as custom, the queries must be separated by a ','
-            # Keep in mind that spaces are used to separate query keywords and query-blocks.
-            # Therefore, do not use ', ' as separator.
-            custom_queries = custom_query.split(",")
-            for index, query in enumerate(custom_queries):
-                self.keywords.append(f"{c.QUERY_CUSTOM}_{index}")
-                self.__arguments.append(query)
-
-    def up_indexes(self, failed: bool):
+    def _up_indices(self):
         """
         Indexes of queries are initialized as 0. The indexes are iterated from the last index in the list upwards.
         An index is counted upwards as long as no IndexError with the current indexes occurs. An occurrence of an
         IndexError is handed over to this method using the 'failed' flag.
         If failed is set to true, the fail counter of this class is increased by one. The index of indexes at index
         self.fail_counter + 1 is then increased by one. Sets indexes to None if fail_counter exceeds length of indexes.
-        Args:
-            failed (bool): Flag to indicate weather an Index error occurred with current indexes.
         """
-        if not failed:
-            self._fail_counter = 0
-            self.__indexes[-1] += 1
+        if not self.failed:
+            self.__fail_counter = 0
+            self.__indices[-1] += 1
         else:
-            self._fail_counter += 1
-            if self._fail_counter == len(self.indexes):
-                self.__indexes = None
-                self._fail_counter = 0
-                return
-            self.__indexes[-self._fail_counter:] = [0] * self._fail_counter
-            self.__indexes[-self._fail_counter - 1] += 1
+            self.__fail_counter += 1
+            if self.__fail_counter == len(self.indices):
+                raise StopIteration
+            self.__indices[-self.__fail_counter:] = [0] * self.__fail_counter
+            self.__indices[-self.__fail_counter - 1] += 1
+            # Reverse failed flag
+            self.failed = False
 
     def _index_loading_queries(self):
         """
@@ -284,7 +246,7 @@ class AQL:
         # get indices for undefined iterators
         index_occurrences = [m.start() for m in re.finditer(c.REGEX_QUERY_UNDEFINED_ITERATOR, loading_query)]
         for list_index, index_occurrence in enumerate(index_occurrences):
-            insertion = f"[{self.__indexes[list_index]}]"
+            insertion = f"[{self.__indices[list_index]}]"
             indexed_loading_query += (loading_query[prev_index:index_occurrence] + insertion)
             # up prev_index by index occurrences plus the length of '[n]'.
             # Keep in that the iterator still iterates over the loading query string
@@ -297,6 +259,145 @@ class AQL:
         Resets current indexes to 0.
         """
         self._get_indexes()
+
+
+class AnnotationLoader(DataLoader, ABC):
+
+    def __init__(self, rng: np.random.Generator, aql: str, mode: str):
+        super().__init__(rng)
+        self.__aql = AQL(mode, aql)
+        self.__loader_type = c.MODALITY_TYPE_ANNOTATION
+        # preload does load all annotation data available
+        self.__fully_loaded = True
+
+    def load(self, preloaded_item: DataItem) -> List[AnnotationItem]:
+        pass
+
+    def _transform(self, raw_data: dict) -> AnnotationItem:
+        pass
+
+    @staticmethod
+    def _load_xml(file_path: str) -> Tuple[dict, str]:
+        """
+        Loads a xml file. Returns Tuple of xml content as dict and file name as string.
+        Args:
+            file_path (str): Path to xml file
+        """
+        path = Path(file_path)
+        with open(path, "r") as f:
+            return xmltodict.parse(f.read()), path.stem
+
+    @staticmethod
+    def _load_json(file_path: str) -> Tuple[dict, str]:
+        """
+        Loads a json file. Returns Tuple of json content as dict and file name as string.
+        Args:
+            file_path (str): Path to json file
+        """
+        path = Path(file_path)
+        with open(path, "r") as f:
+            return json.load(f), path.stem
+
+    @staticmethod
+    def _load_yaml(file_path: str) -> Tuple[dict, str]:
+        """
+        Loads a yaml file. Returns Tuple of yaml content as dict and file name as string.
+        Args:
+            file_path (str): Path to yaml file
+        """
+        path = Path(file_path)
+        with open(path, "r") as f:
+            return yaml.safe_load(f), path.stem
+
+    @staticmethod
+    def _load_csv(file_path: str) -> Tuple[Union[List[Dict[str, str]], List[List[str]]], str]:
+        """
+        Loads a csv file. Returns Tuple of csv content as dict or list and file name as string.
+        Args:
+            file_path (str): Path to csv file
+        """
+        path = Path(file_path)
+        has_header = False
+        content_list = []
+        with open(path, "r") as f:
+            reader = csv.reader(f)
+            for index, line in enumerate(reader):
+                if index == 0:
+                    if is_header(line):
+                        has_header = True
+                        header = line
+                        continue
+                if has_header:
+                    content_dict = {}
+                    for key, value in zip(header, line):
+                        content_dict[key] = value
+                    content_list.append(content_dict)
+                else:
+                    content_list.append(line)
+        return content_list, path.stem
+
+    @staticmethod
+    def _load_txt(file_path: str) -> Tuple[Union[List[Dict[str, str]], List[List[str]]], str]:
+        """
+        Loads a txt file. Returns Tuple of txt content as dict or list and file name as string.
+        Args:
+            file_path (str): Path to txt file
+        """
+        path = Path(file_path)
+        has_header = False
+        content_list = []
+        with open(path, "r") as f:
+            reader = f.readlines()
+            for index, str_line in enumerate(reader):
+                line = string_to_list(str_line)
+                if index == 0:
+                    if is_header(line):
+                        has_header = True
+                        header = line
+                if has_header:
+                    content_dict = {}
+                    for key, value in zip(header, line):
+                        content_dict[key] = value
+                    content_list.append(content_dict)
+                else:
+                    content_list.append(line)
+        return content_list, path.stem
+
+    @abstractmethod
+    def _load_from_indices(self, indices: List[int]) -> Optional[DataItem]:
+        # TODO: Implement this method. This should load one item into a data item. Maybe this should be an abstractmethod?
+        pass
+
+    def preload(self) -> List[DataItem]:
+        data_items: List[DataItem] = []
+        for indices in self.__aql:
+            data_item = self._load_from_indices(indices)
+            if data_item is None:
+                self.__aql.failed = True
+        return data_items
+
+
+
+
+
+class ImageAnnotationLoader(AnnotationLoader):
+    def __init__(self, rng: np.random.Generator, aql: str, mode: str):
+        super().__init__(rng, aql, mode)
+
+    def _load_from_indices(self, indices: List[int]) -> Optional[DataItem]:
+        pass
+
+
+class LabelLoader(DataLoader):
+    pass
+
+class AudioLoader(DataLoader):
+    pass
+
+class AudioAnnotationLoader(AnnotationLoader):
+    pass
+
+
 
 
 # TODO: Rewrite Annotation into DataItem
@@ -517,7 +618,7 @@ class InitialLoader:
         """
         self.__current_working_file, file_name = self._load_file(file_path)
         load_list = []
-        while self.query.indexes is not None:
+        while self.query.indices is not None:
             item_dict = {}
             for keyword, loading_query in zip(self.query.keywords, self.query.loading_queries):
                 if loading_query == c.QUERY_CURRENT_FILE_NAME:
