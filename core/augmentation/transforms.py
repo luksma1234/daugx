@@ -16,6 +16,14 @@ class SITransform(ABC):
         self.inflation = 1
         self.rng = None
 
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, SITransform):
+            return self.__key() == other.__key()
+        return False
+
     def apply(
             self,
             image: np.ndarray,
@@ -44,12 +52,10 @@ class SITransform(ABC):
         return self.image, self.annots
 
     @abstractmethod
-    def __eq__(self, other):
+    def _key(self):
         """
-        -- This method must be overwritten in a subclass --
-
-        Verifies equality by comparing all input args. Mandatory to compare augmentations to verify uniqueness during
-        block building.
+        Creates a key for this class to make it hashable and comparable. They __key method should return a tuple of all
+        parameters, which are relevant for comparison.
         """
         pass
 
@@ -84,6 +90,14 @@ class MITransform(ABC):
         self.annots = None
         self.rng = None
 
+    def __hash__(self):
+        return hash(self._key())
+
+    def __eq__(self, other):
+        if isinstance(other, MITransform):
+            return self._key() == other._key()
+        return False
+
     def apply(
             self,
             image_list: List[np.ndarray],
@@ -109,11 +123,10 @@ class MITransform(ABC):
         return self.image, self.annots
 
     @abstractmethod
-    def __eq__(self, other):
+    def _key(self):
         """
-        -- This method must be overwritten in a subclass --
-
-        Verifies equality by comparing all input args
+        Creates a key for this class to make it hashable and comparable. They __key method should return a tuple of all
+        parameters, which are relevant for comparison.
         """
         pass
 
@@ -137,12 +150,19 @@ class IOTransform(ABC):
     def __init__(self):
         self.rng = None
 
-    @abstractmethod
-    def __eq__(self, other):
-        """
-        -- This method must be overwritten in a subclass --
+    def __hash__(self):
+        return hash(self.__key())
 
-        Verifies equality by comparing all input args
+    def __eq__(self, other):
+        if isinstance(other, IOTransform):
+            return self.__key() == other.__key()
+        return False
+
+    @abstractmethod
+    def _key(self):
+        """
+        Creates a key for this class to make it hashable and comparable. They __key method should return a tuple of all
+        parameters, which are relevant for comparison.
         """
         pass
 

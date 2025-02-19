@@ -255,7 +255,7 @@ class Branch:
 
     def __next__(self):
         """
-        Always returns the next node to be executed. Stops Iteration on Output Node.
+        Always returns the next node to be executed. Stops Iteration after Output Node.
         """
         if self.current_node is not None:
             if self.current_node.is_output:

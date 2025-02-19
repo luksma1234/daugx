@@ -17,7 +17,7 @@ class DataItem(ABC):
     is_fully_loaded: bool
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=False)
 class ImageItem(DataItem):
     width: int
     height: int
@@ -25,8 +25,31 @@ class ImageItem(DataItem):
     image: Optional[np.ndarray] = None
 
 
+@dataclass(slots=True, frozen=False)
 class AnnotationItem(DataItem):
-    raise NotImplementedError
+    pass
+
+@dataclass(slots=True, frozen=False)
+class BBoxAnnotationItem(AnnotationItem):
+    xmin: float
+    ymin: float
+    xmax: float
+    ymax: float
+    width: float
+    height: float
+
+@dataclass(slots=True, frozen=False)
+class PolygonAnnotationItem(AnnotationItem):
+    polys: List[float]
+    width: float
+    height: float
+
+@dataclass(slots=True, frozen=False)
+class LabelAnnotationItem(AnnotationItem):
+    name: str
+    label_id: int
+
+
 
 
 class LabelItem(DataItem):
@@ -126,13 +149,13 @@ class Modality:
         """
         match self.__modality_type:
             case c.MODALITY_TYPE_IMAGE:
-                self.__loader = ImageLoader(*self.__loader_args)
+                self.__loader = ImageLoader(self.__rng, *self.__loader_args)
             case c.MODALITY_TYPE_ANNOTATION:
-                self.__loader = AnnotationLoader(*self.__loader_args)
+                self.__loader = AnnotationLoader(self.__rng, *self.__loader_args)
             case c.MODALITY_TYPE_LABEL:
-                self.__loader = LabelLoader(*self.__loader_args)
+                self.__loader = LabelLoader(self.__rng, *self.__loader_args)
             case c.MODALITY_TYPE_AUDIO:
-                self.__loader = AudioLoader(*self.__loader_args)
+                self.__loader = AudioLoader(self.__rng, *self.__loader_args)
 
     def _add(self, data_item: DataItem):
         if data_item.id in self.__data:
@@ -193,6 +216,11 @@ class DataSet:
     # TODO: Yes it makes sense that a modality has grandchildren. Image -> Annotation -> Label
     # TODO: How to handle this? grandchild has to be loaded with id of child
 
+    def add_modality(self, modality: Modality):
+        self.__modalities.append(modality)
+        if modality.is_prime:
+            self._calc_prime_probs()
+
     def _get_fetch_id(self):
         """
         Select one prime id to fetch.
@@ -212,11 +240,6 @@ class DataSet:
 
     def _load_additional(self):
         pass
-
-    def add_modality(self, modality):
-        self.__modalities.append(modality)
-        if modality.is_prime:
-            self._calc_prime_probs()
 
     def _calc_prime_probs(self):
         prime_data_sum = sum([modality.size for modality in self.primes])

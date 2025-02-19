@@ -15,15 +15,32 @@ import cv2
 from pathlib import Path
 
 
+#TODO: Check for inheritance problems. Dunder variables are not getting inherited. Make sure to modify these variables
+# only in super and make them available with properties!
+# TODO: Make RNG available as function. Only provide superclass with rng_func. Subclasses can use supers rng property.
+
+
 class DataLoader(ABC):
     """
     This class and all its inheritors are used to load data. These classes do not store any data.
     """
-    def __init__(self, rng: np.random.Generator):
+    def __init__(self, rng: np.random.Generator, source: str, types: List[str], recursive: bool):
+        """
+        Args:
+            rng: RNG
+            source (str): The absolute path to the data source. Can be a file or a directory
+            types (List[str): List of accepted data types
+            recursive (bool): Whether the data should be loaded recursively from source (Load from subdirectories)
+        """
         self.__rng = rng
+        self.__source = Path(source)
+        self.__types = types
+        self.__recursive = recursive
+
         self.__loader_type: Optional[str] = None
         # Flag weather the preload has already loaded all items.
         self.__is_fully_loaded: bool = False
+        self.__file_paths = self._get_file_paths(self.source)
 
     @property
     def loader_type(self):
@@ -34,6 +51,18 @@ class DataLoader(ABC):
     @property
     def is_fully_loaded(self):
         return self.__is_fully_loaded
+
+    @property
+    def source(self):
+        return self.__source
+
+    @property
+    def types(self):
+        return self.__types
+
+    @property
+    def file_paths(self):
+        return self.__file_paths
 
     @abstractmethod
     def preload(self) -> List[DataItem]:
@@ -59,6 +88,22 @@ class DataLoader(ABC):
         """
         pass
 
+    def _get_file_paths(self, source: Path) -> List[Path]:
+        paths = []
+        if not source.is_dir():
+            return [source]
+        for file in os.listdir(source):
+            path = source.joinpath(file)
+            if path.suffix in self.types:
+                paths.append(path)
+            elif os.path.isdir(path) and self.__recursive:
+                paths.extend(self._get_file_paths(path))
+            else:
+                # skip files where the suffix does not match any accepted type
+                pass
+        return paths
+
+
 
 class ImageLoader(DataLoader):
 
@@ -71,7 +116,7 @@ class ImageLoader(DataLoader):
             recursive (bool): Flag weather data should be loaded recursively of given directory. If True - Loader loads
                               all available images found in all subdirectories of directory.
         """
-        super().__init__(rng)
+        super().__init__(rng, directory, types, recursive)
         self.__dir = directory
         self.__types = types
         self.__recursive = recursive
@@ -81,7 +126,7 @@ class ImageLoader(DataLoader):
 
     def preload(self) -> List[ImageItem]:
         item_list = []
-        image_paths = self._get_image_paths(self.__dir)
+        image_paths = self.file_paths
         for path in image_paths:
             item_list.append(self._transform(path))
         return item_list
@@ -90,25 +135,11 @@ class ImageLoader(DataLoader):
         preloaded_item.image = cv2.imread(preloaded_item.path)
         return preloaded_item
 
-    def _transform(self, path: str) -> ImageItem:
+    def _transform(self, path: Path) -> ImageItem:
         image_id = new_id(self.__rng)
-        return ImageItem(image_id, None, False, *img_dims(path))
+        # TODO: What happens when img_dims fails? - Can't get dimensions of image
+        return ImageItem(image_id, None, False, *img_dims(path), path, None)
 
-    def _get_image_paths(self, directory: str) -> List[str]:
-        paths = []
-        for file in os.listdir(directory):
-            path = os.path.join(directory, file)
-            if self._is_correct_file_type(file):
-                paths.append(path)
-            elif os.path.isdir(path) and self.__recursive:
-                paths.extend(self._get_image_paths(file))
-        return paths
-
-    def _is_correct_file_type(self, file: str):
-        for type_ in self.__types:
-            if file.endswith(type_):
-                return True
-        return False
 
 
 class AQL:
@@ -116,11 +147,10 @@ class AQL:
     Annotation Query Language. Defines how exactly the data should be loaded. A query will be passed to the Loader.
     """
 
-    def __init__(self, mode: str, query_string: str):
+    def __init__(self, query_string: str):
         """
         If a csv file contains a header - Make sure to attend each element by its header key NOT by its index.
         Args:
-            mode (str): one of 'directory' or 'onefile' - specifies the base structure of the data
             query_string (str): the query string in the format '<Keyword> <Loading Query> ...'
                                 Allowed Input Parameters are:
                                 XMIN, XMAX, YMIN, YMAX, WIDTH, HEIGHT, XCENTER, YCENTER, POLYGON, KEYPOINT,
@@ -141,7 +171,6 @@ class AQL:
                                 XMIN {annotations}[n]{bbox}[0] YMIN {annotations}[n]{bbox}[1] WIDTH
                                 {annotations}[n]{bbox}[2] HEIGHT {annotations}[n]{bbox}[3]'
         """
-        self.__mode = mode
         self.__query_string = query_string
         self.__keywords: List[str] = []
         self.__arguments: List[str] = []
@@ -158,16 +187,13 @@ class AQL:
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def __next__(self) -> List[str]:
         if self.indices is None:
             self._get_indexes()
         else:
             self._up_indices()
-        return self.__indices
-
-    @property
-    def mode(self):
-        return self.__mode
+        # Returns indexed loading queries with current index.
+        return self.loading_queries
 
     @property
     def keywords(self) -> List[str]:
@@ -216,12 +242,12 @@ class AQL:
         If failed is set to true, the fail counter of this class is increased by one. The index of indexes at index
         self.fail_counter + 1 is then increased by one. Sets indexes to None if fail_counter exceeds length of indexes.
         """
-        if not self.failed:
+        if not self.failed and self.indices:
             self.__fail_counter = 0
             self.__indices[-1] += 1
         else:
             self.__fail_counter += 1
-            if self.__fail_counter == len(self.indices):
+            if self.__fail_counter >= len(self.indices):
                 raise StopIteration
             self.__indices[-self.__fail_counter:] = [0] * self.__fail_counter
             self.__indices[-self.__fail_counter - 1] += 1
@@ -249,7 +275,7 @@ class AQL:
             insertion = f"[{self.__indices[list_index]}]"
             indexed_loading_query += (loading_query[prev_index:index_occurrence] + insertion)
             # up prev_index by index occurrences plus the length of '[n]'.
-            # Keep in that the iterator still iterates over the loading query string
+            # Keep in mind, that the iterator still iterates over the loading query string
             prev_index = index_occurrence + 3
         indexed_loading_query += loading_query[prev_index:]
         return indexed_loading_query
@@ -261,65 +287,107 @@ class AQL:
         self._get_indexes()
 
 
-class AnnotationLoader(DataLoader, ABC):
+class AnnotationLoader(DataLoader):
 
-    def __init__(self, rng: np.random.Generator, aql: str, mode: str):
-        super().__init__(rng)
-        self.__aql = AQL(mode, aql)
+    def __init__(self, rng: np.random.Generator, aql: str, path: str, types: Optional[List[str]] = None, recursive=False):
+        """
+        Args:
+            rng: RNG
+            aql (str): The annotation query string
+            path (str): Absolute Path to Folder which holds annotation files, or a single annotation file
+            types (List[str): List of accepted datatypes for annotations (only necessary when path is a directory)
+            recursive (bool): Flag weather data should be loaded recursively of given directory. If True - Loader loads
+                all available annotations found in all subdirectories of path. (Only necessary if apth is a directory)
+        """
+        super().__init__(rng, path, types, recursive)
+        self.__aql = AQL(aql)
         self.__loader_type = c.MODALITY_TYPE_ANNOTATION
         # preload does load all annotation data available
         self.__fully_loaded = True
+        self.__path = path
+        self.__types = types
 
     def load(self, preloaded_item: DataItem) -> List[AnnotationItem]:
-        pass
+        """
+        Already fully loaded
+        """
+        raise NotImplementedError
 
     def _transform(self, raw_data: dict) -> AnnotationItem:
-        pass
+        """
+        Implemented in subclasses
+        """
+        raise NotImplementedError
 
     @staticmethod
-    def _load_xml(file_path: str) -> Tuple[dict, str]:
+    def _query_to_list(query: str):
+        """
+        Takes a query string and returns a list of dictionaries. Each dictionary has the two keys 'key' and 'mode'.
+        'key' stores the string inside the brackets while 'mode' stores the type of brackets.
+        """
+        ls = []
+        key = ""
+        current_mode = None
+        for char in query:
+            if char == c.DICT_START_CHAR:
+                if key:
+                    assert key.endswith(current_mode)
+                    ls.append({c.QUERY_KEY: key[:-1], c.QUERY_MODE: current_mode})
+                    key = ""
+                current_mode = c.QUERY_MODE_DICT
+            elif char == c.LIST_START_CHAR:
+                if key:
+                    assert key.endswith(current_mode)
+                    ls.append({c.QUERY_KEY: key[:-1], c.QUERY_MODE: current_mode})
+                    key = ""
+                current_mode = c.QUERY_MODE_LIST
+            else:
+                assert current_mode is not None
+                key += char
+        assert key.endswith(current_mode)
+        ls.append({c.QUERY_KEY: key[:-1], c.QUERY_MODE: current_mode})
+        return ls
+
+    @staticmethod
+    def _load_xml(file_path: Path) -> Tuple[dict, str]:
         """
         Loads a xml file. Returns Tuple of xml content as dict and file name as string.
         Args:
             file_path (str): Path to xml file
         """
-        path = Path(file_path)
-        with open(path, "r") as f:
-            return xmltodict.parse(f.read()), path.stem
+        with open(file_path, "r") as f:
+            return xmltodict.parse(f.read()), file_path.stem
 
     @staticmethod
-    def _load_json(file_path: str) -> Tuple[dict, str]:
+    def _load_json(file_path: Path) -> Tuple[dict, str]:
         """
         Loads a json file. Returns Tuple of json content as dict and file name as string.
         Args:
             file_path (str): Path to json file
         """
-        path = Path(file_path)
-        with open(path, "r") as f:
-            return json.load(f), path.stem
+        with open(file_path, "r") as f:
+            return json.load(f), file_path.stem
 
     @staticmethod
-    def _load_yaml(file_path: str) -> Tuple[dict, str]:
+    def _load_yaml(file_path: Path) -> Tuple[dict, str]:
         """
         Loads a yaml file. Returns Tuple of yaml content as dict and file name as string.
         Args:
             file_path (str): Path to yaml file
         """
-        path = Path(file_path)
-        with open(path, "r") as f:
-            return yaml.safe_load(f), path.stem
+        with open(file_path, "r") as f:
+            return yaml.safe_load(f), file_path.stem
 
     @staticmethod
-    def _load_csv(file_path: str) -> Tuple[Union[List[Dict[str, str]], List[List[str]]], str]:
+    def _load_csv(file_path: Path) -> Tuple[Union[List[Dict[str, str]], List[List[str]]], str]:
         """
         Loads a csv file. Returns Tuple of csv content as dict or list and file name as string.
         Args:
             file_path (str): Path to csv file
         """
-        path = Path(file_path)
         has_header = False
         content_list = []
-        with open(path, "r") as f:
+        with open(file_path, "r") as f:
             reader = csv.reader(f)
             for index, line in enumerate(reader):
                 if index == 0:
@@ -334,19 +402,18 @@ class AnnotationLoader(DataLoader, ABC):
                     content_list.append(content_dict)
                 else:
                     content_list.append(line)
-        return content_list, path.stem
+        return content_list, file_path.stem
 
     @staticmethod
-    def _load_txt(file_path: str) -> Tuple[Union[List[Dict[str, str]], List[List[str]]], str]:
+    def _load_txt(file_path: Path) -> Tuple[Union[List[Dict[str, str]], List[List[str]]], str]:
         """
         Loads a txt file. Returns Tuple of txt content as dict or list and file name as string.
         Args:
             file_path (str): Path to txt file
         """
-        path = Path(file_path)
         has_header = False
         content_list = []
-        with open(path, "r") as f:
+        with open(file_path, "r") as f:
             reader = f.readlines()
             for index, str_line in enumerate(reader):
                 line = string_to_list(str_line)
@@ -361,19 +428,74 @@ class AnnotationLoader(DataLoader, ABC):
                     content_list.append(content_dict)
                 else:
                     content_list.append(line)
-        return content_list, path.stem
+        return content_list, file_path.stem
 
-    @abstractmethod
-    def _load_from_indices(self, indices: List[int]) -> Optional[DataItem]:
-        # TODO: Implement this method. This should load one item into a data item. Maybe this should be an abstractmethod?
-        pass
+    def _load_file(self, file_path: Path) -> Tuple[Union[list, dict], str]:
+        file_type = file_path.suffix
+        match file_type:
+            case c.FILE_TYPE_CSV:
+                return self._load_csv(file_path)
+            case c.FILE_TYPE_JSON:
+                return self._load_json(file_path)
+            case c.FILE_TYPE_TXT:
+                return self._load_txt(file_path)
+            case c.FILE_TYPE_XML:
+                return self._load_xml(file_path)
+            case c.FILE_TYPE_YAML:
+                return self._load_yaml(file_path)
+
+    def _load_from_queries(
+            self,
+            file_content: Union[List[Dict[str, str]], List[List[str]], dict],
+            loading_queries: List[str],
+            file_name: str
+    ) -> Optional[DataItem]:
+        """
+        Takes a list of indexed loading queries and loads data accordingly. Stores data as DataItem.
+        Returns None if loading fails.
+        """
+        # Creates a temporary dict of {Query_Keyword: Data, ...} for each query in loading_queries
+        data = {}
+        for index, query in enumerate(loading_queries):
+            # Catch special keys
+            # TODO: This results in errors... Special keys are always loaded, therefore any(data.values()) will always be true
+            if query == c.QUERY_SPECIAL_KEY_FILENAME:
+                feature = file_name
+            else:
+                try:
+                    feature = self._load_from_query(file_content, query)
+                except KeyError or IndexError:
+                    feature = None
+            data[self.__aql.keywords[index]] = feature
+        if not any(data.values()):
+            return None
+        return self._transform(data)
+        # Feed data into DataItem here:
+        # ...
+        # TODO: AnnotationLoader does load into different DataItem Types. Depending on what annotation type is set for loader.
+        # IMAGEREF [n]{image} XMIN [n][n]{xmin} YMIN [n][n]{ymin} XMAX [n][n]{xmax} YMAX [n][n]{ymax} LABELNAME car
+
+    def _load_from_query(self, file_content: Union[List[Dict[str, str]], List[List[str]], dict], loading_query: str):
+        query_list = self._query_to_list(loading_query)
+        feature = file_content
+        for feature_dict in query_list:
+            if feature_dict[c.QUERY_MODE] == c.QUERY_MODE_DICT:
+                feature = feature[feature_dict[c.QUERY_KEY]]
+            elif feature_dict[c.QUERY_MODE] == c.QUERY_MODE_LIST:
+                feature = feature[feature_dict[int(c.QUERY_KEY)]]
+        return feature
 
     def preload(self) -> List[DataItem]:
         data_items: List[DataItem] = []
-        for indices in self.__aql:
-            data_item = self._load_from_indices(indices)
-            if data_item is None:
-                self.__aql.failed = True
+        # iterate over all files found
+        for file_path in self.file_paths:
+            file_content, file_name = self._load_file(file_path)
+            # For each file get all data provided by the query
+            for loading_queries in self.__aql:
+                data_item = self._load_from_queries(file_content, loading_queries, file_name)
+                # data_item is only None if all data accesses fail
+                if data_item is None:
+                    self.__aql.failed = True
         return data_items
 
 

@@ -6,6 +6,7 @@ from uuid import uuid5
 import random
 from typing import List, Tuple, Union
 import json
+from pathlib import Path
 
 import daugx.core.constants as c
 
@@ -95,7 +96,7 @@ def string_to_list(string: str) -> list:
     return string.split(" ")
 
 
-def img_dims(path: str) -> Tuple[int, int]:
+def img_dims(path: Union[str, Path]) -> Tuple[int, int]:
     """
    Gets image width and height.
     Args:

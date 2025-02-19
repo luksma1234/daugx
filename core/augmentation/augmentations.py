@@ -44,10 +44,8 @@ class Shift(SITransform):
         self.x_shift = x_shift
         self.y_shift = -y_shift
 
-    def __eq__(self, other):
-        if not isinstance(other, Shift):
-            return False
-        return other.x_shift == self.x_shift and other.y_shift == self.y_shift
+    def _key(self):
+        return self.x_shift, self.y_shift
 
     def _apply_on_image(self):
         rows, cols, _ = self.image.shape
@@ -84,10 +82,8 @@ class Scale(SITransform):
         self.x_scale = x_scale
         self.y_scale = y_scale
 
-    def __eq__(self, other):
-        if not isinstance(other, Scale):
-            return False
-        return other.x_scale == self.x_scale and other.y_scale == self.y_scale
+    def _key(self):
+        return self.x_scale, self.y_scale
 
     def _apply_on_image(self):
         self.image = cv2.resize(self.image,None,fx=self.y_scale, fy=self.x_scale, interpolation = cv2.INTER_LINEAR)
@@ -116,10 +112,8 @@ class Rotate(SITransform):
         super().__init__()
         self.angle = angle
 
-    def __eq__(self, other):
-        if not isinstance(other, Rotate):
-            return False
-        return other.angle == self.angle
+    def _key(self):
+        return self.angle
 
     def _apply_on_image(self):
         rows, cols, _ = self.image.shape
@@ -163,11 +157,9 @@ class Resize(SITransform):
         # Tests have shown that an aspect_ratio of 6 is max
         assert (1 / 6) < (self.width / self.height) < 6
 
-    def __eq__(self, other):
-        if not isinstance(other, Resize):
-            return False
-        return (other.width == self.width and other.height == self.height and
-                other.preserve_aspect_ratio == self.preserve_aspect_ratio)
+    def _key(self):
+        return self.width, self.height, self.preserve_aspect_ratio
+
 
     def _apply_on_image(self):
         self.img_width, self.img_height, _ = self.image.shape
@@ -253,10 +245,8 @@ class Mosaic(MITransform):
         self.unify_height = None
         self.inflation = 0.25
 
-    def __eq__(self, other):
-        if not isinstance(other, Mosaic):
-            return False
-        return other.mode == self.mode
+    def _key(self):
+        return self.mode
 
     def _preprocess(self):
         preprocessed_images, preprocessed_annots = [], []
@@ -329,11 +319,9 @@ class Crop(SITransform):
         self.x_max_abs = None
         self.y_max_abs = None
 
-    def __eq__(self, other):
-        if not isinstance(other, Crop):
-            return False
-        return (other.x_min == self.x_min and other.y_min == self.y_min and other.x_max == self.x_max
-                and other.y_max == self.y_max)
+    def _key(self):
+        return self.x_min, self.y_min, self.x_max, self.y_max
+
 
     def _apply_on_image(self):
         image_width = self.annots.width
@@ -376,11 +364,9 @@ class RandomCrop(SITransform):
         # validate crop area
         assert 0 < self.min_width < self.max_width <= 1 and 0 < self.min_height < self.max_height <= 1
 
-    def __eq__(self, other):
-        if not isinstance(other, RandomCrop):
-            return False
-        return (other.min_width == self.min_width and other.max_width == self.max_width and
-                other.min_height == self.min_height and other.max_height == self.max_height)
+    def _key(self):
+        return self.min_width, self.min_height, self.max_width, self.max_height, self.preserve_aspect_ratio
+
 
     def apply(
             self,
@@ -434,10 +420,8 @@ class MixUp(MITransform):
 
         assert 0.4 <= self.lam <= 0.6, f"Lambda parameter for MixUp must be in range 0.4 - 0.6. Found {self.lam}."
 
-    def __eq__(self, other):
-        if not isinstance(other, MixUp):
-            return False
-        return other.lam == self.lam
+    def _key(self):
+        return self.lam
 
     def _preprocess(self) -> None:
         assert len(self.image_list) == 2, (f"MixUp Augmentation needs exactly 2 images for blending. "
@@ -455,4 +439,4 @@ class MixUp(MITransform):
                 self.annots = deepcopy(annots)
             else:
                 for annot in annots:
-                    self.annots.add(annot.boundary.points, annot.label.id, annot.label.name)
+                    self.annots._add(annot.boundary.points, annot.label.id, annot.label.name)
