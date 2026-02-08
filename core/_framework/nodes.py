@@ -591,32 +591,3 @@ class Tree:
         Returns all augment nodes of the provided list.
         """
         return [node for node in nodes if not node.is_input]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

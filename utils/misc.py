@@ -89,13 +89,6 @@ def is_header(item_list: List[str]) -> bool:
     return not any([item.replace(".", "").isdigit() for item in item_list])
 
 
-def string_to_list(string: str) -> list:
-    """
-    Splits a string into a list. Takes a space as separator.
-    """
-    return string.split(" ")
-
-
 def img_dims(path: Union[str, Path]) -> Tuple[int, int]:
     """
    Gets image width and height.
