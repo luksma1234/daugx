@@ -49,6 +49,78 @@ class Polygon(Component):
         """Centroid (mean of vertices)."""
         return self._points.mean(axis=0)
 
+    def shift(
+        self, x_shift: float, y_shift: float,
+    ) -> "Polygon":
+        """Return a new Polygon shifted by offsets.
+
+        Args:
+            x_shift: Horizontal shift (positive = right).
+            y_shift: Vertical shift (positive = down).
+        """
+        return Polygon(
+            self._points + np.array([x_shift, y_shift]),
+        )
+
+    def scale(
+        self, x_scale: float, y_scale: float,
+    ) -> "Polygon":
+        """Return a new Polygon scaled by factors.
+
+        Args:
+            x_scale: Horizontal scale factor.
+            y_scale: Vertical scale factor.
+        """
+        matrix = np.array([[x_scale, 0], [0, y_scale]])
+        return Polygon(self._points @ matrix)
+
+    def rotate(
+        self, angle: float, center: np.ndarray,
+    ) -> "Polygon":
+        """Return a new Polygon rotated around a center.
+
+        Args:
+            angle: Rotation angle in degrees (positive =
+                clockwise).
+            center: Rotation center as ``[cx, cy]``.
+        """
+        rad = np.deg2rad(-angle)
+        cos, sin = np.cos(rad), np.sin(rad)
+        rot = np.array([[cos, -sin], [sin, cos]])
+        rotated = (self._points - center) @ rot + center
+        return Polygon(rotated)
+
+    def clip(
+        self,
+        x_min: float,
+        y_min: float,
+        x_max: float,
+        y_max: float,
+    ) -> "Polygon":
+        """Return a new Polygon with vertices clipped to
+        bounds.
+
+        Args:
+            x_min: Left bound.
+            y_min: Top bound.
+            x_max: Right bound.
+            y_max: Bottom bound.
+        """
+        clipped = np.clip(
+            self._points,
+            [x_min, y_min],
+            [x_max, y_max],
+        )
+        return Polygon(clipped)
+
+    def is_valid(self, min_area: float = 0) -> bool:
+        """Check if the polygon is non-degenerate.
+
+        Args:
+            min_area: Minimum required area.
+        """
+        return self.area > min_area
+
     @property
     def state(self) -> ComponentState:
         return ComponentState.MATERIALIZED

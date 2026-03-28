@@ -16,6 +16,7 @@ from daugx.core.data.components.bounding_box import BoundingBox
 from daugx.core.data.components.polygon import Polygon
 from daugx.core.data.components.keypoint import KeyPoint
 from daugx.core.data.components.image import Image
+from daugx.core.data.components.text import Text
 from daugx.core.data.schema import Schema
 from daugx.core.data.sample import Sample
 from daugx.core.data.data_package import DataPackage
@@ -486,3 +487,121 @@ class TestDataset:
         schema = Schema({"image": Image})
         ds = Dataset(schema=schema, samples=[])
         assert len(ds) == 0
+
+
+# -------------------------------------------------------------------
+# DataPackage enhancements
+# -------------------------------------------------------------------
+
+class TestDataPackageReplace:
+    def test_replace_returns_new_instance(self):
+        pkg = DataPackage({"a": 1, "b": 2})
+        pkg2 = pkg.replace(a=10)
+        assert pkg2 is not pkg
+        assert pkg2["a"] == 10
+        assert pkg2["b"] == 2
+
+    def test_replace_does_not_mutate_original(self):
+        pkg = DataPackage({"a": 1})
+        pkg.replace(a=99)
+        assert pkg["a"] == 1
+
+    def test_replace_multiple_keys(self):
+        pkg = DataPackage({"x": 1, "y": 2, "z": 3})
+        pkg2 = pkg.replace(x=10, z=30)
+        assert pkg2["x"] == 10
+        assert pkg2["y"] == 2
+        assert pkg2["z"] == 30
+
+    def test_replace_preserves_keys(self):
+        pkg = DataPackage({"a": 1, "b": 2})
+        pkg2 = pkg.replace(a=10)
+        assert set(pkg2.keys) == {"a", "b"}
+
+    def test_items(self):
+        pkg = DataPackage({"a": 1, "b": 2})
+        items = dict(pkg.items())
+        assert items == {"a": 1, "b": 2}
+
+
+# -------------------------------------------------------------------
+# Image.from_array
+# -------------------------------------------------------------------
+
+class TestImageFromArray:
+    def test_creates_materialized_image(self):
+        pixels = np.zeros((10, 10, 3), dtype=np.uint8)
+        img = Image.from_array(pixels)
+        assert img.is_materialized
+        assert img.state == ComponentState.MATERIALIZED
+
+    def test_data_matches_input(self):
+        pixels = np.ones((5, 8, 3), dtype=np.uint8) * 42
+        img = Image.from_array(pixels)
+        assert np.array_equal(img.data, pixels)
+
+    def test_path_is_empty_string(self):
+        img = Image.from_array(np.zeros((2, 2, 3)))
+        assert img.path == ""
+
+    def test_format_hint(self):
+        img = Image.from_array(
+            np.zeros((2, 2, 3)), format_hint="png",
+        )
+        assert img.format_hint == "png"
+
+    def test_materialize_is_noop(self):
+        pixels = np.zeros((3, 3, 3), dtype=np.uint8)
+        img = Image.from_array(pixels)
+        img.materialize()
+        assert np.array_equal(img.data, pixels)
+
+
+# -------------------------------------------------------------------
+# Text component
+# -------------------------------------------------------------------
+
+class TestTextComponent:
+    def test_construction(self):
+        t = Text("hello world")
+        assert t.text == "hello world"
+
+    def test_default_language(self):
+        t = Text("hello")
+        assert t.language == "en"
+
+    def test_custom_language(self):
+        t = Text("bonjour", language="fr")
+        assert t.language == "fr"
+
+    def test_default_metadata(self):
+        t = Text("hello")
+        assert t.metadata == {}
+
+    def test_custom_metadata(self):
+        t = Text("hello", metadata={"src": "wiki"})
+        assert t.metadata == {"src": "wiki"}
+
+    def test_metadata_returns_copy(self):
+        meta = {"key": "val"}
+        t = Text("hello", metadata=meta)
+        t.metadata["key"] = "changed"
+        assert t.metadata["key"] == "val"
+
+    def test_words(self):
+        t = Text("the quick brown fox")
+        assert t.words == ["the", "quick", "brown", "fox"]
+
+    def test_words_empty(self):
+        t = Text("")
+        assert t.words == []
+
+    def test_always_materialized(self):
+        t = Text("hello")
+        assert t.is_materialized is True
+        assert t.state == ComponentState.MATERIALIZED
+
+    def test_materialize_is_noop(self):
+        t = Text("hello")
+        t.materialize()
+        assert t.text == "hello"

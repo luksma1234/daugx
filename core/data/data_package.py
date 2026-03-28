@@ -34,3 +34,21 @@ class DataPackage:
     ) -> Any:
         """Return component by key, or *default*."""
         return self._components.get(key, default)
+
+    def items(self):
+        """Iterate over ``(key, component)`` pairs."""
+        return self._components.items()
+
+    def replace(self, **kwargs: Any) -> DataPackage:
+        """Return a new DataPackage with specified keys
+        replaced.
+
+        Args:
+            **kwargs: Keys and their new values.
+
+        Returns:
+            A new DataPackage with the updates applied.
+        """
+        merged = dict(self._components)
+        merged.update(kwargs)
+        return DataPackage(merged)

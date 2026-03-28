@@ -5,6 +5,7 @@ from daugx.core.data.components import (
     KeyPoint,
     Label,
     Polygon,
+    Text,
 )
 from daugx.core.data.data_package import DataPackage
 from daugx.core.data.sample import Sample

@@ -41,6 +41,98 @@ class KeyPoint(Component):
     def point(self) -> np.ndarray:
         return np.array([self._x, self._y])
 
+    def shift(
+        self, x_shift: float, y_shift: float,
+    ) -> "KeyPoint":
+        """Return a new KeyPoint shifted by offsets.
+
+        Args:
+            x_shift: Horizontal shift (positive = right).
+            y_shift: Vertical shift (positive = down).
+        """
+        return KeyPoint(
+            self._x + x_shift,
+            self._y + y_shift,
+            self._visibility,
+        )
+
+    def scale(
+        self, x_scale: float, y_scale: float,
+    ) -> "KeyPoint":
+        """Return a new KeyPoint scaled by factors.
+
+        Args:
+            x_scale: Horizontal scale factor.
+            y_scale: Vertical scale factor.
+        """
+        return KeyPoint(
+            self._x * x_scale,
+            self._y * y_scale,
+            self._visibility,
+        )
+
+    def rotate(
+        self, angle: float, center: np.ndarray,
+    ) -> "KeyPoint":
+        """Return a new KeyPoint rotated around a center.
+
+        Args:
+            angle: Rotation angle in degrees (positive =
+                clockwise).
+            center: Rotation center as ``[cx, cy]``.
+        """
+        rad = np.deg2rad(-angle)
+        cos, sin = np.cos(rad), np.sin(rad)
+        rot = np.array([[cos, -sin], [sin, cos]])
+        pt = np.array([self._x, self._y]) - center
+        rotated = pt @ rot + center
+        return KeyPoint(
+            float(rotated[0]),
+            float(rotated[1]),
+            self._visibility,
+        )
+
+    def clip(
+        self,
+        x_min: float,
+        y_min: float,
+        x_max: float,
+        y_max: float,
+    ) -> "KeyPoint":
+        """Return a new KeyPoint clipped to bounds.
+
+        Args:
+            x_min: Left bound.
+            y_min: Top bound.
+            x_max: Right bound.
+            y_max: Bottom bound.
+        """
+        return KeyPoint(
+            float(np.clip(self._x, x_min, x_max)),
+            float(np.clip(self._y, y_min, y_max)),
+            self._visibility,
+        )
+
+    def is_valid(
+        self,
+        x_min: float = 0,
+        y_min: float = 0,
+        x_max: float = float("inf"),
+        y_max: float = float("inf"),
+    ) -> bool:
+        """Check if the keypoint is within bounds.
+
+        Args:
+            x_min: Left bound.
+            y_min: Top bound.
+            x_max: Right bound.
+            y_max: Bottom bound.
+        """
+        return (
+            x_min <= self._x <= x_max
+            and y_min <= self._y <= y_max
+        )
+
     @property
     def state(self) -> ComponentState:
         return ComponentState.MATERIALIZED
