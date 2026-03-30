@@ -26,26 +26,18 @@ class RandomInsertion(Transform):
     Args:
         n: Number of insertions.
         synonyms: Custom ``{word: [synonyms]}`` mapping.
-        text_key: Key in the DataPackage holding the
-            ``Text`` component.
     """
 
     def __init__(
         self,
         n: int = 1,
         synonyms: Optional[Dict[str, List[str]]] = None,
-        text_key: str = "text",
     ) -> None:
         self.n = n
         self.synonyms = synonyms or DEFAULT_SYNONYMS
-        self.text_key = text_key
 
     def _key(self) -> tuple:
-        return (
-            type(self).__name__,
-            self.n,
-            self.text_key,
-        )
+        return (type(self).__name__, self.n)
 
     def apply(
         self,
@@ -61,9 +53,11 @@ class RandomInsertion(Transform):
         Returns:
             New DataPackage with modified text.
         """
-        text_comp = package[self.text_key]
+        text_comp = package.get(Text)
+        if text_comp is None or rng is None:
+            return package
         words = list(text_comp.words)
-        if not words or rng is None:
+        if not words:
             return package
 
         replaceable = [
@@ -85,7 +79,6 @@ class RandomInsertion(Transform):
             " ".join(words),
             text_comp.language,
             text_comp.metadata,
+            name=text_comp.name,
         )
-        return package.replace(
-            **{self.text_key: new_text},
-        )
+        return package.replacing(text_comp, new_text)

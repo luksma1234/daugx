@@ -27,26 +27,18 @@ class SynonymReplace(Transform):
         n: Number of words to replace.
         synonyms: Custom ``{word: [synonyms]}`` mapping.
             Falls back to a small built-in thesaurus.
-        text_key: Key in the DataPackage holding the
-            ``Text`` component.
     """
 
     def __init__(
         self,
         n: int = 1,
         synonyms: Optional[Dict[str, List[str]]] = None,
-        text_key: str = "text",
     ) -> None:
         self.n = n
         self.synonyms = synonyms or DEFAULT_SYNONYMS
-        self.text_key = text_key
 
     def _key(self) -> tuple:
-        return (
-            type(self).__name__,
-            self.n,
-            self.text_key,
-        )
+        return (type(self).__name__, self.n)
 
     def apply(
         self,
@@ -62,9 +54,11 @@ class SynonymReplace(Transform):
         Returns:
             New DataPackage with modified text.
         """
-        text_comp = package[self.text_key]
+        text_comp = package.get(Text)
+        if text_comp is None or rng is None:
+            return package
         words = text_comp.words
-        if not words or rng is None:
+        if not words:
             return package
 
         replaceable = [
@@ -88,7 +82,6 @@ class SynonymReplace(Transform):
             " ".join(new_words),
             text_comp.language,
             text_comp.metadata,
+            name=text_comp.name,
         )
-        return package.replace(
-            **{self.text_key: new_text},
-        )
+        return package.replacing(text_comp, new_text)

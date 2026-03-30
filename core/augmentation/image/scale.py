@@ -53,7 +53,8 @@ class Scale(Transform):
         Returns:
             New DataPackage with scaled contents.
         """
-        pixels = package["image"].data
+        img = package.get(Image)
+        pixels = img.data
         scaled = cv2.resize(
             pixels,
             None,
@@ -62,7 +63,9 @@ class Scale(Transform):
             interpolation=cv2.INTER_LINEAR,
         )
         new_h, new_w = scaled.shape[:2]
-        new_img = Image.from_array(scaled)
+        new_img = Image.from_array(
+            scaled, name=img.name,
+        )
 
         def op(comp):
             return comp.scale(self.x_scale, self.y_scale)
@@ -70,4 +73,4 @@ class Scale(Transform):
         annots = transform_annots(
             package, op, new_h, new_w,
         )
-        return package.replace(image=new_img, **annots)
+        return DataPackage(new_img, *annots)

@@ -62,7 +62,8 @@ class Resize(Transform):
         Returns:
             New DataPackage with resized contents.
         """
-        pixels = package["image"].data
+        img = package.get(Image)
+        pixels = img.data
         orig_h, orig_w = pixels.shape[:2]
 
         if not self.preserve_aspect_ratio:
@@ -73,7 +74,9 @@ class Resize(Transform):
             )
             sx = self.height / orig_w
             sy = self.width / orig_h
-            new_img = Image.from_array(resized)
+            new_img = Image.from_array(
+                resized, name=img.name,
+            )
 
             def op(comp):
                 return comp.scale(sx, sy)
@@ -81,9 +84,7 @@ class Resize(Transform):
             annots = transform_annots(
                 package, op, self.width, self.height,
             )
-            return package.replace(
-                image=new_img, **annots,
-            )
+            return DataPackage(new_img, *annots)
 
         # Preserve aspect ratio: pad then resize
         fy = self.width / orig_h
@@ -149,8 +150,10 @@ class Resize(Transform):
                     pad_left, 0,
                 )
 
-        new_img = Image.from_array(resized)
+        new_img = Image.from_array(
+            resized, name=img.name,
+        )
         annots = transform_annots(
             package, op, self.width, self.height,
         )
-        return package.replace(image=new_img, **annots)
+        return DataPackage(new_img, *annots)

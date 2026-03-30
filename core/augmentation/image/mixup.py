@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 
 from daugx.core.augmentation.base import MultiInputTransform
+from daugx.core.data.annotation import Annotation
+from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
 from daugx.core.data.data_package import DataPackage
 
@@ -59,8 +61,8 @@ class MixUp(MultiInputTransform):
                 f"got {len(packages)}"
             )
         pkg1, pkg2 = packages
-        img1 = pkg1["image"].data
-        img2 = pkg2["image"].data
+        img1 = pkg1.get(Image).data
+        img2 = pkg2.get(Image).data
 
         # Resize img2 to match img1 if needed
         if img1.shape != img2.shape:
@@ -76,15 +78,9 @@ class MixUp(MultiInputTransform):
         )
         new_img = Image.from_array(blended)
 
-        # Merge annotation lists from both packages
-        merged: dict = {"image": new_img}
-        for key in pkg1.keys:
-            if key == "image":
-                continue
-            val1 = pkg1[key]
-            val2 = pkg2.get(key, [])
-            if isinstance(val1, list):
-                merged[key] = list(val1) + list(val2)
-            else:
-                merged[key] = val1
-        return DataPackage(merged)
+        # Merge annotation components from both packages
+        annots: List[Component] = (
+            pkg1.get_all(Annotation)
+            + pkg2.get_all(Annotation)
+        )
+        return DataPackage(new_img, *annots)

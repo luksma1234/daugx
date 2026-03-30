@@ -21,24 +21,17 @@ class RandomDeletion(Transform):
 
     Args:
         p: Probability of deleting each word.
-        text_key: Key in the DataPackage holding the
-            ``Text`` component.
     """
 
-    def __init__(
-        self,
-        p: float = 0.1,
-        text_key: str = "text",
-    ) -> None:
+    def __init__(self, p: float = 0.1) -> None:
         if not 0.0 <= p <= 1.0:
             raise ValueError(
                 f"p must be in [0, 1], got {p}"
             )
         self.p = p
-        self.text_key = text_key
 
     def _key(self) -> tuple:
-        return (type(self).__name__, self.p, self.text_key)
+        return (type(self).__name__, self.p)
 
     def apply(
         self,
@@ -54,9 +47,11 @@ class RandomDeletion(Transform):
         Returns:
             New DataPackage with modified text.
         """
-        text_comp = package[self.text_key]
+        text_comp = package.get(Text)
+        if text_comp is None or rng is None or self.p == 0:
+            return package
         words = text_comp.words
-        if not words or rng is None or self.p == 0.0:
+        if not words:
             return package
 
         # Keep words where random draw exceeds p
@@ -70,7 +65,6 @@ class RandomDeletion(Transform):
             " ".join(kept),
             text_comp.language,
             text_comp.metadata,
+            name=text_comp.name,
         )
-        return package.replace(
-            **{self.text_key: new_text},
-        )
+        return package.replacing(text_comp, new_text)

@@ -1,40 +1,40 @@
-"""Label component."""
+"""ImageCategory annotation component."""
 from typing import Optional
 
-from daugx.core.data.component import Component, ComponentState
+from daugx.core.data.annotation import Annotation
 
 
-class Label(Component):
-    """Classification label.  Always materialized.
+class ImageCategory(Annotation):
+    """Image-level classification annotation.
+
+    Associates an image with a category.  Use this for
+    image classification tasks where a category label
+    applies to an entire image rather than a specific
+    region.
 
     Args:
         class_id: Integer class identifier.
-        name: Human-readable class name.
+        class_name: Human-readable class name.
+        target: ``name`` of the parent ``Image`` component
+            this annotation belongs to.
+        name: Optional disambiguation name.
     """
 
     def __init__(
         self,
         class_id: int,
+        class_name: Optional[str] = None,
+        target: Optional[str] = None,
         name: Optional[str] = None,
     ) -> None:
+        super().__init__(target=target, name=name)
         self._class_id = class_id
-        self._name = name
+        self._class_name = class_name
 
     @property
     def class_id(self) -> int:
         return self._class_id
 
     @property
-    def name(self) -> Optional[str]:
-        return self._name
-
-    @property
-    def state(self) -> ComponentState:
-        return ComponentState.MATERIALIZED
-
-    @property
-    def is_materialized(self) -> bool:
-        return True
-
-    def materialize(self) -> None:
-        pass
+    def class_name(self) -> Optional[str]:
+        return self._class_name

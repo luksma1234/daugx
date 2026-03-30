@@ -1,17 +1,16 @@
 """Shared helpers for spatial annotation transforms."""
-from typing import Any, Callable, List, Tuple
+from typing import Callable, List
 
-import numpy as np
-
+from daugx.core.data.annotation import Annotation
+from daugx.core.data.component import Component
 from daugx.core.data.components.bounding_box import (
-    BoundingBox,
+    ImageBoundingBox,
 )
-from daugx.core.data.components.polygon import Polygon
-from daugx.core.data.components.keypoint import KeyPoint
+from daugx.core.data.components.keypoint import ImageKeyPoint
+from daugx.core.data.components.polygon import ImagePolygon
 from daugx.core.data.data_package import DataPackage
-from daugx.core.data.components.image import Image
 
-_SPATIAL_TYPES = (BoundingBox, Polygon, KeyPoint)
+_SPATIAL_TYPES = (ImageBoundingBox, ImagePolygon, ImageKeyPoint)
 
 
 def transform_annots(
@@ -19,9 +18,14 @@ def transform_annots(
     op: Callable,
     img_h: int,
     img_w: int,
-) -> dict:
-    """Apply a spatial operation to all annotation lists
+) -> List[Component]:
+    """Apply a spatial operation to all annotation components
     in a package.
+
+    For each annotation component, transforms spatial types
+    (ImageBoundingBox, ImagePolygon, ImageKeyPoint) using
+    *op*, clips to image bounds, and filters out invalid
+    results.  Non-spatial annotations are kept unchanged.
 
     Args:
         package: Source data package.
@@ -31,26 +35,22 @@ def transform_annots(
         img_w: New image width (for clipping).
 
     Returns:
-        Dict of key -> transformed annotation list, for
-        keys that contain annotation lists.
+        List of transformed annotation components (invalid
+        spatial ones removed).
     """
-    replacements: dict = {}
-    for key in package.keys:
-        val = package[key]
-        if not isinstance(val, list):
+    result: List[Component] = []
+    for comp in package.components:
+        if not isinstance(comp, Annotation):
             continue
-        new_list: List[Tuple[Any, ...]] = []
-        for tup in val:
-            new_tup = tuple(
-                _apply_and_clip(comp, op, img_h, img_w)
-                if isinstance(comp, _SPATIAL_TYPES)
-                else comp
-                for comp in tup
+        if isinstance(comp, _SPATIAL_TYPES):
+            transformed = _apply_and_clip(
+                comp, op, img_h, img_w,
             )
-            if _all_valid(new_tup, img_h, img_w):
-                new_list.append(new_tup)
-        replacements[key] = new_list
-    return replacements
+            if _is_valid(transformed, img_h, img_w):
+                result.append(transformed)
+        else:
+            result.append(comp)
+    return result
 
 
 def _apply_and_clip(comp, op, img_h, img_w):
@@ -59,13 +59,10 @@ def _apply_and_clip(comp, op, img_h, img_w):
     return transformed.clip(0, 0, img_w, img_h)
 
 
-def _all_valid(tup, img_h, img_w):
-    """Check all spatial components in a tuple are valid."""
-    for comp in tup:
-        if isinstance(comp, (BoundingBox, Polygon)):
-            if not comp.is_valid():
-                return False
-        elif isinstance(comp, KeyPoint):
-            if not comp.is_valid(0, 0, img_w, img_h):
-                return False
+def _is_valid(comp, img_h, img_w):
+    """Check if a spatial component is still valid."""
+    if isinstance(comp, (ImageBoundingBox, ImagePolygon)):
+        return comp.is_valid()
+    if isinstance(comp, ImageKeyPoint):
+        return comp.is_valid(0, 0, img_w, img_h)
     return True

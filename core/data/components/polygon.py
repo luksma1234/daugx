@@ -1,20 +1,35 @@
-"""Polygon component."""
+"""ImagePolygon annotation component."""
+from typing import Optional
+
 import numpy as np
 
-from daugx.core.data.component import Component, ComponentState
+from daugx.core.data.annotation import Annotation
 
 
-class Polygon(Component):
-    """Polygon boundary.  Always materialized.
+class ImagePolygon(Annotation):
+    """Polygon annotation for images.
 
     Args:
         points: Array of shape (n, 2) with n >= 3.
+        class_id: Integer class identifier.
+        class_name: Human-readable class name.
+        target: ``name`` of the parent ``Image`` component
+            this annotation belongs to.
+        name: Optional disambiguation name.
 
     Raises:
         ValueError: If fewer than 3 points or wrong shape.
     """
 
-    def __init__(self, points: np.ndarray) -> None:
+    def __init__(
+        self,
+        points: np.ndarray,
+        class_id: Optional[int] = None,
+        class_name: Optional[str] = None,
+        target: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(target=target, name=name)
         pts = np.asarray(points, dtype=float)
         if pts.ndim != 2 or pts.shape[1] != 2:
             raise ValueError(
@@ -27,10 +42,20 @@ class Polygon(Component):
                 f"got {pts.shape[0]}"
             )
         self._points = pts
+        self._class_id = class_id
+        self._class_name = class_name
 
     @property
     def points(self) -> np.ndarray:
         return self._points
+
+    @property
+    def class_id(self) -> Optional[int]:
+        return self._class_id
+
+    @property
+    def class_name(self) -> Optional[str]:
+        return self._class_name
 
     @property
     def area(self) -> float:
@@ -51,33 +76,43 @@ class Polygon(Component):
 
     def shift(
         self, x_shift: float, y_shift: float,
-    ) -> "Polygon":
-        """Return a new Polygon shifted by offsets.
+    ) -> "ImagePolygon":
+        """Return a new ImagePolygon shifted by offsets.
 
         Args:
             x_shift: Horizontal shift (positive = right).
             y_shift: Vertical shift (positive = down).
         """
-        return Polygon(
+        return ImagePolygon(
             self._points + np.array([x_shift, y_shift]),
+            class_id=self._class_id,
+            class_name=self._class_name,
+            target=self._target,
+            name=self._component_name,
         )
 
     def scale(
         self, x_scale: float, y_scale: float,
-    ) -> "Polygon":
-        """Return a new Polygon scaled by factors.
+    ) -> "ImagePolygon":
+        """Return a new ImagePolygon scaled by factors.
 
         Args:
             x_scale: Horizontal scale factor.
             y_scale: Vertical scale factor.
         """
         matrix = np.array([[x_scale, 0], [0, y_scale]])
-        return Polygon(self._points @ matrix)
+        return ImagePolygon(
+            self._points @ matrix,
+            class_id=self._class_id,
+            class_name=self._class_name,
+            target=self._target,
+            name=self._component_name,
+        )
 
     def rotate(
         self, angle: float, center: np.ndarray,
-    ) -> "Polygon":
-        """Return a new Polygon rotated around a center.
+    ) -> "ImagePolygon":
+        """Return a new ImagePolygon rotated around a center.
 
         Args:
             angle: Rotation angle in degrees (positive =
@@ -88,7 +123,13 @@ class Polygon(Component):
         cos, sin = np.cos(rad), np.sin(rad)
         rot = np.array([[cos, -sin], [sin, cos]])
         rotated = (self._points - center) @ rot + center
-        return Polygon(rotated)
+        return ImagePolygon(
+            rotated,
+            class_id=self._class_id,
+            class_name=self._class_name,
+            target=self._target,
+            name=self._component_name,
+        )
 
     def clip(
         self,
@@ -96,8 +137,8 @@ class Polygon(Component):
         y_min: float,
         x_max: float,
         y_max: float,
-    ) -> "Polygon":
-        """Return a new Polygon with vertices clipped to
+    ) -> "ImagePolygon":
+        """Return a new ImagePolygon with vertices clipped to
         bounds.
 
         Args:
@@ -111,7 +152,13 @@ class Polygon(Component):
             [x_min, y_min],
             [x_max, y_max],
         )
-        return Polygon(clipped)
+        return ImagePolygon(
+            clipped,
+            class_id=self._class_id,
+            class_name=self._class_name,
+            target=self._target,
+            name=self._component_name,
+        )
 
     def is_valid(self, min_area: float = 0) -> bool:
         """Check if the polygon is non-degenerate.
@@ -120,14 +167,3 @@ class Polygon(Component):
             min_area: Minimum required area.
         """
         return self.area > min_area
-
-    @property
-    def state(self) -> ComponentState:
-        return ComponentState.MATERIALIZED
-
-    @property
-    def is_materialized(self) -> bool:
-        return True
-
-    def materialize(self) -> None:
-        pass

@@ -21,10 +21,12 @@ class Text(Component):
         text: str,
         language: str = "en",
         metadata: Optional[Dict[str, Any]] = None,
+        name: Optional[str] = None,
     ) -> None:
         self._text = text
         self._language = language
         self._metadata = dict(metadata) if metadata else {}
+        self._component_name = name
 
     @property
     def text(self) -> str:

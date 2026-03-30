@@ -1,81 +1,147 @@
 """Sample — preloaded component holder."""
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import (
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    TypeVar,
+)
 
+from daugx.core.data.annotation import Annotation
 from daugx.core.data.component import Component
+
+T = TypeVar("T")
 
 
 class Sample:
     """One augmentation unit in preloaded state.
 
-    Users build samples in a loop, assigning components
-    by keyword matching the schema keys.
+    Takes positional ``Component`` instances — including
+    annotation components (subclasses of ``Annotation``).
+    No string keys.
 
     Args:
-        **components: Keyword arguments mapping keys to
-            components or lists of component tuples.
+        *components: Components to include in this sample.
     """
 
-    def __init__(self, **components: Any) -> None:
-        self._components: dict[str, Any] = dict(components)
-
-    def __getitem__(self, key: str) -> Any:
-        return self._components[key]
-
-    def __contains__(self, key: str) -> bool:
-        return key in self._components
+    def __init__(self, *components: Component) -> None:
+        self._components: List[Component] = list(components)
 
     @property
-    def keys(self) -> Tuple[str, ...]:
-        return tuple(self._components.keys())
+    def components(self) -> Tuple[Component, ...]:
+        """All top-level components."""
+        return tuple(self._components)
+
+    def get(
+        self,
+        component_type: Type[T],
+        name: Optional[str] = None,
+    ) -> Optional[T]:
+        """Return the first component of *type*.
+
+        Args:
+            component_type: The type to search for.
+            name: If given, also match ``component.name``.
+
+        Returns:
+            The first match, or ``None``.
+        """
+        for comp in self._components:
+            if isinstance(comp, component_type):
+                if name is None or comp.name == name:
+                    return comp  # type: ignore[return-value]
+        return None
+
+    def get_all(
+        self,
+        component_type: Type[T],
+        name: Optional[str] = None,
+    ) -> List[T]:
+        """Return all components of *type*.
+
+        Args:
+            component_type: The type to search for.
+            name: If given, also match ``component.name``.
+
+        Returns:
+            List of matches (may be empty).
+        """
+        results: List[T] = []
+        for comp in self._components:
+            if isinstance(comp, component_type):
+                if name is None or comp.name == name:
+                    results.append(comp)  # type: ignore[arg-type]
+        return results
+
+    def get_annotations(
+        self, target: Optional[str] = None,
+    ) -> List[Annotation]:
+        """Return all annotation components.
+
+        Args:
+            target: If given, filter by ``annotation.target``.
+
+        Returns:
+            List of matching ``Annotation`` instances.
+        """
+        results = []
+        for comp in self._components:
+            if isinstance(comp, Annotation):
+                if target is None or comp.target == target:
+                    results.append(comp)
+        return results
 
     @property
     def is_materialized(self) -> bool:
         """True if every component is materialized."""
-        for value in self._components.values():
-            if isinstance(value, Component):
-                if not value.is_materialized:
-                    return False
-            elif isinstance(value, list):
-                for element in value:
-                    if isinstance(element, tuple):
-                        for comp in element:
-                            if (
-                                isinstance(comp, Component)
-                                and not comp.is_materialized
-                            ):
-                                return False
-                    elif (
-                        isinstance(element, Component)
-                        and not element.is_materialized
-                    ):
-                        return False
-        return True
+        return all(
+            c.is_materialized for c in self._components
+        )
 
     def materialize(self) -> "DataPackage":
         """Materialize all components and return a
         :class:`DataPackage`.
 
-        Calls ``component.materialize()`` on every
-        component in-place, then returns a new
-        ``DataPackage`` wrapping the same dict.
+        Calls ``materialize()`` on every component in-place,
+        then returns a new ``DataPackage`` wrapping the same
+        items.
         """
-        for value in self._components.values():
-            if isinstance(value, Component):
-                value.materialize()
-            elif isinstance(value, list):
-                for element in value:
-                    if isinstance(element, tuple):
-                        for comp in element:
-                            if isinstance(
-                                comp, Component
-                            ):
-                                comp.materialize()
-                    elif isinstance(element, Component):
-                        element.materialize()
+        for comp in self._components:
+            comp.materialize()
 
-        from daugx.core.data.data_package import (
-            DataPackage,
-        )
-        return DataPackage(self._components)
+        from daugx.core.data.data_package import DataPackage
+        return DataPackage(*self._components)
+
+    def merge(self, other: Sample) -> Sample:
+        """Return a new Sample combining components from
+        both *self* and *other*.
+
+        Neither original is mutated.
+
+        Args:
+            other: The Sample to merge into this one.
+
+        Returns:
+            A new Sample with all components from both.
+        """
+        return Sample(*self._components, *other._components)
+
+    def __add__(self, other: Sample) -> Sample:
+        return self.merge(other)
+
+    def modalities(self) -> Set[Optional[str]]:
+        """Return the set of distinct names across all
+        components.
+
+        Useful for discovering which modalities are present
+        in a multimodal sample.  Unnamed items contribute
+        ``None``.
+
+        Returns:
+            Set of name strings (and ``None`` for unnamed
+            items).
+        """
+        return {comp.name for comp in self._components}

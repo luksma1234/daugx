@@ -43,14 +43,17 @@ class Rotate(Transform):
         Returns:
             New DataPackage with rotated contents.
         """
-        pixels = package["image"].data
+        img = package.get(Image)
+        pixels = img.data
         h, w = pixels.shape[:2]
         center = ((w - 1) / 2.0, (h - 1) / 2.0)
         mat = cv2.getRotationMatrix2D(
             center, self.angle, 1,
         )
         rotated = cv2.warpAffine(pixels, mat, (w, h))
-        new_img = Image.from_array(rotated)
+        new_img = Image.from_array(
+            rotated, name=img.name,
+        )
         img_center = np.array(
             [center[0], center[1]],
         )
@@ -61,4 +64,4 @@ class Rotate(Transform):
         annots = transform_annots(
             package, op, h, w,
         )
-        return package.replace(image=new_img, **annots)
+        return DataPackage(new_img, *annots)

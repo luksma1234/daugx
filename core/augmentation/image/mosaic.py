@@ -6,8 +6,10 @@ import numpy as np
 
 from daugx.core.augmentation.base import MultiInputTransform
 from daugx.core.augmentation.image._spatial import (
-    transform_annots,
+    _SPATIAL_TYPES,
 )
+from daugx.core.data.annotation import Annotation
+from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
 from daugx.core.data.data_package import DataPackage
 
@@ -61,7 +63,8 @@ class Mosaic(MultiInputTransform):
 
         # Find smallest cell size
         shapes = [
-            p["image"].data.shape[:2] for p in packages
+            p.get(Image).data.shape[:2]
+            for p in packages
         ]
         cell_h = min(s[0] for s in shapes)
         cell_w = min(s[1] for s in shapes)
@@ -69,7 +72,7 @@ class Mosaic(MultiInputTransform):
         # Resize each image to cell size
         cells = []
         for pkg in packages:
-            img = pkg["image"].data
+            img = pkg.get(Image).data
             if img.shape[:2] != (cell_h, cell_w):
                 img = cv2.resize(
                     img,
@@ -85,7 +88,7 @@ class Mosaic(MultiInputTransform):
         out_h, out_w = mosaic.shape[:2]
         new_img = Image.from_array(mosaic)
 
-        # Merge annotations with offsets
+        # Merge annotation components with offsets
         offsets = [
             (0, 0),
             (0, cell_h),
@@ -98,33 +101,22 @@ class Mosaic(MultiInputTransform):
             for s in shapes
         ]
 
-        all_annots: dict = {}
+        all_annots: List[Component] = []
         for idx, pkg in enumerate(packages):
             sx, sy = scales[idx]
             dx, dy = offsets[idx]
-            for key in pkg.keys:
-                if key == "image":
-                    continue
-                val = pkg[key]
-                if not isinstance(val, list):
-                    continue
-                if key not in all_annots:
-                    all_annots[key] = []
-                for tup in val:
-                    new_tup = tuple(
+            for comp in pkg.get_all(Annotation):
+                if isinstance(comp, _SPATIAL_TYPES):
+                    all_annots.append(
                         _scale_shift_clip(
                             comp, sx, sy, dx, dy,
                             out_h, out_w,
-                        )
-                        if hasattr(comp, "scale")
-                        else comp
-                        for comp in tup
+                        ),
                     )
-                    all_annots[key].append(new_tup)
+                else:
+                    all_annots.append(comp)
 
-        return DataPackage(
-            {"image": new_img, **all_annots},
-        )
+        return DataPackage(new_img, *all_annots)
 
 
 def _scale_shift_clip(comp, sx, sy, dx, dy, h, w):

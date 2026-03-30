@@ -67,7 +67,8 @@ class Crop(Transform):
         Returns:
             New DataPackage with cropped contents.
         """
-        pixels = package["image"].data
+        img = package.get(Image)
+        pixels = img.data
         h, w = pixels.shape[:2]
         x0 = int(w * self.x_min)
         y0 = int(h * self.y_min)
@@ -75,7 +76,9 @@ class Crop(Transform):
         y1 = int(h * self.y_max)
         cropped = pixels[y0:y1, x0:x1, :]
         new_h, new_w = cropped.shape[:2]
-        new_img = Image.from_array(cropped)
+        new_img = Image.from_array(
+            cropped, name=img.name,
+        )
 
         def op(comp):
             return comp.shift(-x0, -y0)
@@ -83,4 +86,4 @@ class Crop(Transform):
         annots = transform_annots(
             package, op, new_h, new_w,
         )
-        return package.replace(image=new_img, **annots)
+        return DataPackage(new_img, *annots)

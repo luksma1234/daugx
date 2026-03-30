@@ -37,10 +37,7 @@ def _make_mi_transform(
 
 
 def _make_dataset(name: str = "Dataset") -> Dataset:
-    from daugx.core.data.schema import Schema
-    return Dataset(
-        schema=Schema({}), samples=[], name=name,
-    )
+    return Dataset(samples=[], name=name)
 
 
 # ---------------------------------------------------------------------------

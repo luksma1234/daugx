@@ -1,34 +1,33 @@
 """Tests for image augmentation transforms (DataPackage API).
 
-Each transform receives a DataPackage with an Image and a
-list of (BoundingBox, Label) objects, and returns a new
-DataPackage.
+Each transform receives a DataPackage with an Image and flat
+annotation components, and returns a new DataPackage.
 """
 import numpy as np
 import pytest
 
-from daugx.core.data.data_package import DataPackage
-from daugx.core.data.components.image import Image
-from daugx.core.data.components.bounding_box import (
-    BoundingBox,
-)
-from daugx.core.data.components.label import Label
-from daugx.core.data.components.polygon import Polygon
-from daugx.core.data.components.keypoint import KeyPoint
 from daugx.core.augmentation.base import (
-    Transform,
     MultiInputTransform,
+    Transform,
 )
-from daugx.core.augmentation.image.shift import Shift
-from daugx.core.augmentation.image.scale import Scale
-from daugx.core.augmentation.image.rotate import Rotate
 from daugx.core.augmentation.image.crop import Crop
-from daugx.core.augmentation.image.resize import Resize
+from daugx.core.augmentation.image.mixup import MixUp
+from daugx.core.augmentation.image.mosaic import Mosaic
 from daugx.core.augmentation.image.random_crop import (
     RandomCrop,
 )
-from daugx.core.augmentation.image.mixup import MixUp
-from daugx.core.augmentation.image.mosaic import Mosaic
+from daugx.core.augmentation.image.resize import Resize
+from daugx.core.augmentation.image.rotate import Rotate
+from daugx.core.augmentation.image.scale import Scale
+from daugx.core.augmentation.image.shift import Shift
+from daugx.core.data.annotation import Annotation
+from daugx.core.data.components.bounding_box import (
+    ImageBoundingBox,
+)
+from daugx.core.data.components.image import Image
+from daugx.core.data.components.keypoint import ImageKeyPoint
+from daugx.core.data.components.polygon import ImagePolygon
+from daugx.core.data.data_package import DataPackage
 
 
 # -------------------------------------------------------------------
@@ -50,62 +49,85 @@ def sample_image():
 def package(sample_image):
     """DataPackage with image and two bounding boxes."""
     img = Image.from_array(sample_image)
-    objects = [
-        (
-            BoundingBox(np.array([[10, 10], [30, 30]])),
-            Label(0, "cat"),
+    return DataPackage(
+        img,
+        ImageBoundingBox(
+            np.array([[10, 10], [30, 30]]),
+            class_id=0,
+            class_name="cat",
         ),
-        (
-            BoundingBox(np.array([[50, 40], [90, 70]])),
-            Label(1, "dog"),
+        ImageBoundingBox(
+            np.array([[50, 40], [90, 70]]),
+            class_id=1,
+            class_name="dog",
         ),
-    ]
-    return DataPackage({"image": img, "objects": objects})
+    )
 
 
 @pytest.fixture
 def package_no_annots(sample_image):
     """DataPackage with image only (no annotations)."""
-    return DataPackage({
-        "image": Image.from_array(sample_image),
-    })
+    return DataPackage(Image.from_array(sample_image))
 
 
 @pytest.fixture
 def package_with_polygon():
-    """DataPackage with image and polygon annotations."""
+    """DataPackage with image and polygon annotation."""
     img = Image.from_array(
         np.zeros((100, 100, 3), dtype=np.uint8),
     )
-    objects = [
-        (
-            Polygon(np.array(
+    return DataPackage(
+        img,
+        ImagePolygon(
+            np.array(
                 [[10, 10], [40, 10], [40, 40], [10, 40]],
-            )),
-            Label(0, "square"),
+            ),
+            class_id=0,
+            class_name="square",
         ),
-    ]
-    return DataPackage({"image": img, "objects": objects})
+    )
 
 
 @pytest.fixture
 def package_with_keypoint():
-    """DataPackage with image and keypoint annotations."""
+    """DataPackage with image and keypoint annotation."""
     img = Image.from_array(
         np.zeros((100, 100, 3), dtype=np.uint8),
     )
-    objects = [
-        (
-            KeyPoint(25.0, 25.0, visibility=2),
-            Label(0, "nose"),
+    return DataPackage(
+        img,
+        ImageKeyPoint(
+            25.0, 25.0,
+            visibility=2,
+            class_id=0,
+            class_name="nose",
         ),
-    ]
-    return DataPackage({"image": img, "objects": objects})
+    )
 
 
 def _img_shape(pkg):
     """Get (H, W) from a DataPackage's image."""
-    return pkg["image"].data.shape[:2]
+    return pkg.get(Image).data.shape[:2]
+
+
+def _bboxes(pkg):
+    """Get all ImageBoundingBox components from a package."""
+    return pkg.get_all(ImageBoundingBox)
+
+
+def _polygons(pkg):
+    """Get all ImagePolygon components from a package."""
+    return pkg.get_all(ImagePolygon)
+
+
+def _keypoints(pkg):
+    """Get all ImageKeyPoint components from a package."""
+    return pkg.get_all(ImageKeyPoint)
+
+
+def _annots(pkg):
+    """Get all annotation components from a package."""
+    return pkg.get_all(Annotation)
 
 
 # -------------------------------------------------------------------
@@ -129,14 +151,14 @@ class TestShift:
     def test_bbox_shifted_positive(self, package, rng):
         t = Shift(x_shift=10, y_shift=0)
         result = t.apply(package, rng)
-        bb = result["objects"][0][0]
+        bb = _bboxes(result)[0]
         assert bb.x_min == pytest.approx(20.0)
         assert bb.y_min == pytest.approx(10.0)
 
     def test_bbox_shifted_negative(self, package, rng):
         t = Shift(x_shift=-5, y_shift=-5)
         result = t.apply(package, rng)
-        bb = result["objects"][0][0]
+        bb = _bboxes(result)[0]
         assert bb.x_min == pytest.approx(5.0)
         assert bb.y_min == pytest.approx(5.0)
 
@@ -145,40 +167,37 @@ class TestShift:
         img = Image.from_array(
             np.zeros((50, 50, 3), dtype=np.uint8),
         )
-        objects = [
-            (
-                BoundingBox(np.array([[0, 0], [10, 10]])),
-                Label(0, "a"),
-            ),
-        ]
         pkg = DataPackage(
-            {"image": img, "objects": objects},
+            img,
+            ImageBoundingBox(
+                np.array([[0, 0], [10, 10]]),
+                class_id=0,
+                class_name="a",
+            ),
         )
         t = Shift(x_shift=-20, y_shift=0)
         result = t.apply(pkg, rng)
-        assert len(result["objects"]) == 0
+        assert len(_bboxes(result)) == 0
 
-    def test_labels_preserved(self, package, rng):
+    def test_class_names_preserved(self, package, rng):
         t = Shift(x_shift=5, y_shift=0)
         result = t.apply(package, rng)
-        labels = [lbl.name for _, lbl in result["objects"]]
-        assert "cat" in labels
+        names = [bb.class_name for bb in _bboxes(result)]
+        assert "cat" in names
 
     def test_no_annots(self, package_no_annots, rng):
         t = Shift(x_shift=10, y_shift=5)
         result = t.apply(package_no_annots, rng)
-        assert "image" in result
+        assert result.get(Image) is not None
 
     def test_pixel_shift_right(self):
         """White stripe at x=50 shifts to x=60."""
         img = np.ones((100, 100, 3), dtype=np.uint8) * 127
         img[:, 50, :] = 255
-        pkg = DataPackage(
-            {"image": Image.from_array(img)},
-        )
+        pkg = DataPackage(Image.from_array(img))
         t = Shift(x_shift=10, y_shift=0)
         result = t.apply(pkg)
-        out = result["image"].data
+        out = result.get(Image).data
         assert out[0, 60, 0] == 255
         assert out[0, 50, 0] == 127
 
@@ -186,12 +205,10 @@ class TestShift:
         """White stripe at y=50 shifts to y=60."""
         img = np.ones((100, 100, 3), dtype=np.uint8) * 127
         img[50, :, :] = 255
-        pkg = DataPackage(
-            {"image": Image.from_array(img)},
-        )
+        pkg = DataPackage(Image.from_array(img))
         t = Shift(x_shift=0, y_shift=10)
         result = t.apply(pkg)
-        out = result["image"].data
+        out = result.get(Image).data
         assert out[60, 0, 0] == 255
         assert out[50, 0, 0] == 127
 
@@ -200,7 +217,7 @@ class TestShift:
     ):
         t = Shift(x_shift=5, y_shift=5)
         result = t.apply(package_with_polygon, rng)
-        poly = result["objects"][0][0]
+        poly = _polygons(result)[0]
         assert poly.points[0, 0] == pytest.approx(15.0)
         assert poly.points[0, 1] == pytest.approx(15.0)
 
@@ -209,7 +226,7 @@ class TestShift:
     ):
         t = Shift(x_shift=10, y_shift=5)
         result = t.apply(package_with_keypoint, rng)
-        kp = result["objects"][0][0]
+        kp = _keypoints(result)[0]
         assert kp.x == pytest.approx(35.0)
         assert kp.y == pytest.approx(30.0)
 
@@ -224,9 +241,9 @@ class TestShift:
     def test_original_package_unchanged(
         self, package, rng,
     ):
-        orig_x = package["objects"][0][0].x_min
+        orig_x = _bboxes(package)[0].x_min
         Shift(x_shift=100).apply(package, rng)
-        assert package["objects"][0][0].x_min == orig_x
+        assert _bboxes(package)[0].x_min == orig_x
 
 
 # -------------------------------------------------------------------
@@ -258,17 +275,17 @@ class TestScale:
     def test_bbox_scaled(self, package, rng):
         t = Scale(x_scale=2.0, y_scale=2.0)
         result = t.apply(package, rng)
-        bb = result["objects"][0][0]
+        bb = _bboxes(result)[0]
         assert bb.x_min == pytest.approx(20.0)
         assert bb.y_min == pytest.approx(20.0)
         assert bb.x_max == pytest.approx(60.0)
 
-    def test_labels_preserved(self, package, rng):
+    def test_class_names_preserved(self, package, rng):
         t = Scale(x_scale=0.5, y_scale=0.5)
         result = t.apply(package, rng)
-        labels = [lbl.name for _, lbl in result["objects"]]
-        assert "cat" in labels
-        assert "dog" in labels
+        names = [bb.class_name for bb in _bboxes(result)]
+        assert "cat" in names
+        assert "dog" in names
 
     def test_no_annots(self, package_no_annots, rng):
         t = Scale(x_scale=2.0, y_scale=2.0)
@@ -280,7 +297,7 @@ class TestScale:
     ):
         t = Scale(x_scale=2.0, y_scale=2.0)
         result = t.apply(package_with_polygon, rng)
-        poly = result["objects"][0][0]
+        poly = _polygons(result)[0]
         assert poly.points[0, 0] == pytest.approx(20.0)
 
     def test_keypoint_scaled(
@@ -288,7 +305,7 @@ class TestScale:
     ):
         t = Scale(x_scale=2.0, y_scale=2.0)
         result = t.apply(package_with_keypoint, rng)
-        kp = result["objects"][0][0]
+        kp = _keypoints(result)[0]
         assert kp.x == pytest.approx(50.0)
         assert kp.y == pytest.approx(50.0)
 
@@ -325,20 +342,18 @@ class TestRotate:
         img = np.random.default_rng(0).integers(
             0, 255, (50, 50, 3), dtype=np.uint8,
         )
-        pkg = DataPackage(
-            {"image": Image.from_array(img)},
-        )
+        pkg = DataPackage(Image.from_array(img))
         t = Rotate(angle=360)
         result = t.apply(pkg, rng)
         np.testing.assert_array_equal(
-            result["image"].data, img,
+            result.get(Image).data, img,
         )
 
-    def test_labels_preserved(self, package, rng):
+    def test_class_names_preserved(self, package, rng):
         t = Rotate(angle=10)
         result = t.apply(package, rng)
-        labels = [lbl.name for _, lbl in result["objects"]]
-        assert "cat" in labels
+        names = [bb.class_name for bb in _bboxes(result)]
+        assert "cat" in names
 
     def test_no_annots(self, package_no_annots, rng):
         t = Rotate(angle=30)
@@ -350,7 +365,6 @@ class TestRotate:
     ):
         t = Rotate(angle=90)
         result = t.apply(package_with_polygon, rng)
-        # Polygon should still exist (may be clipped)
         assert isinstance(result, DataPackage)
 
     def test_keypoint_rotated(
@@ -358,7 +372,7 @@ class TestRotate:
     ):
         t = Rotate(angle=0)
         result = t.apply(package_with_keypoint, rng)
-        kp = result["objects"][0][0]
+        kp = _keypoints(result)[0]
         assert kp.x == pytest.approx(25.0, abs=1e-6)
         assert kp.y == pytest.approx(25.0, abs=1e-6)
 
@@ -391,7 +405,7 @@ class TestCrop:
         img = Image.from_array(
             np.zeros((100, 100, 3), dtype=np.uint8),
         )
-        pkg = DataPackage({"image": img})
+        pkg = DataPackage(img)
         t = Crop(x_min=0.25, y_min=0.25,
                  x_max=0.75, y_max=0.75)
         result = t.apply(pkg, rng)
@@ -404,61 +418,58 @@ class TestCrop:
         img = Image.from_array(
             np.zeros((100, 100, 3), dtype=np.uint8),
         )
-        objects = [
-            (
-                BoundingBox(np.array([[80, 80], [95, 95]])),
-                Label(0, "outside"),
-            ),
-            (
-                BoundingBox(np.array([[10, 10], [40, 40]])),
-                Label(1, "inside"),
-            ),
-        ]
         pkg = DataPackage(
-            {"image": img, "objects": objects},
+            img,
+            ImageBoundingBox(
+                np.array([[80, 80], [95, 95]]),
+                class_id=0,
+                class_name="outside",
+            ),
+            ImageBoundingBox(
+                np.array([[10, 10], [40, 40]]),
+                class_id=1,
+                class_name="inside",
+            ),
         )
         t = Crop(x_min=0.05, y_min=0.05,
                  x_max=0.5, y_max=0.5)
         result = t.apply(pkg, rng)
-        labels = [lbl.name for _, lbl in result["objects"]]
-        assert "inside" in labels
-        assert "outside" not in labels
+        names = [bb.class_name for bb in _bboxes(result)]
+        assert "inside" in names
+        assert "outside" not in names
 
     def test_bbox_coordinates_adjusted(self, rng):
-        """After crop, bbox coords are relative to new
-        origin."""
+        """After crop, bbox coords are relative to new origin."""
         img = Image.from_array(
             np.zeros((100, 100, 3), dtype=np.uint8),
         )
-        objects = [
-            (
-                BoundingBox(np.array([[20, 20], [40, 40]])),
-                Label(0, "obj"),
-            ),
-        ]
         pkg = DataPackage(
-            {"image": img, "objects": objects},
+            img,
+            ImageBoundingBox(
+                np.array([[20, 20], [40, 40]]),
+                class_id=0,
+                class_name="obj",
+            ),
         )
-        # Crop starting at (10, 10)
         t = Crop(x_min=0.1, y_min=0.1,
                  x_max=0.9, y_max=0.9)
         result = t.apply(pkg, rng)
-        bb = result["objects"][0][0]
+        bb = _bboxes(result)[0]
         assert bb.x_min == pytest.approx(10.0)
         assert bb.y_min == pytest.approx(10.0)
 
-    def test_labels_preserved(self, package, rng):
+    def test_class_names_preserved(self, package, rng):
         t = Crop(x_min=0.05, y_min=0.05,
                  x_max=0.95, y_max=0.95)
         result = t.apply(package, rng)
-        for _, lbl in result["objects"]:
-            assert lbl.name in ("cat", "dog")
+        for bb in _bboxes(result):
+            assert bb.class_name in ("cat", "dog")
 
     def test_no_annots(self, package_no_annots, rng):
         t = Crop(x_min=0.1, y_min=0.1,
                  x_max=0.5, y_max=0.5)
         result = t.apply(package_no_annots, rng)
-        assert "image" in result
+        assert result.get(Image) is not None
 
     def test_invalid_bounds_raises(self):
         with pytest.raises(ValueError):
@@ -505,13 +516,13 @@ class TestResize:
     ):
         t = Resize(width=200, height=200)
         result = t.apply(package, rng)
-        assert len(result["objects"]) > 0
+        assert len(_bboxes(result)) > 0
 
-    def test_labels_preserved(self, package, rng):
+    def test_class_names_preserved(self, package, rng):
         t = Resize(width=50, height=50)
         result = t.apply(package, rng)
-        labels = [lbl.name for _, lbl in result["objects"]]
-        assert "cat" in labels
+        names = [bb.class_name for bb in _bboxes(result)]
+        assert "cat" in names
 
     def test_no_annots(self, package_no_annots, rng):
         t = Resize(width=50, height=50)
@@ -561,7 +572,7 @@ class TestRandomCrop:
         r1 = t.apply(package, np.random.default_rng(7))
         r2 = t.apply(package, np.random.default_rng(7))
         assert np.array_equal(
-            r1["image"].data, r2["image"].data,
+            r1.get(Image).data, r2.get(Image).data,
         )
 
     def test_rng_required(self, package):
@@ -573,8 +584,7 @@ class TestRandomCrop:
         t = RandomCrop(min_width=0.8, max_width=1.0,
                        min_height=0.8, max_height=1.0)
         result = t.apply(package, rng)
-        # With a near-full crop, annotations should survive
-        assert "objects" in result
+        assert result.get(Image) is not None
 
     def test_invalid_range_raises(self):
         with pytest.raises(ValueError):
@@ -602,72 +612,81 @@ class TestMixUp:
         assert MixUp(lam=0.5).inflation == 0.5
 
     def test_blends_two_packages(self, sample_image, rng):
-        pkg1 = DataPackage({
-            "image": Image.from_array(
+        pkg1 = DataPackage(
+            Image.from_array(
                 np.zeros_like(sample_image),
             ),
-            "objects": [
-                (BoundingBox(np.array([[0, 0], [10, 10]])),
-                 Label(0, "a")),
-            ],
-        })
-        pkg2 = DataPackage({
-            "image": Image.from_array(
+            ImageBoundingBox(
+                np.array([[0, 0], [10, 10]]),
+                class_id=0,
+                class_name="a",
+            ),
+        )
+        pkg2 = DataPackage(
+            Image.from_array(
                 np.ones_like(sample_image) * 255,
             ),
-            "objects": [
-                (BoundingBox(np.array([[20, 20], [40, 40]])),
-                 Label(1, "b")),
-            ],
-        })
+            ImageBoundingBox(
+                np.array([[20, 20], [40, 40]]),
+                class_id=1,
+                class_name="b",
+            ),
+        )
         t = MixUp(lam=0.5)
         result = t.apply([pkg1, pkg2], rng)
         assert isinstance(result, DataPackage)
         h, w = _img_shape(result)
         assert h == 100 and w == 80
-        mean_val = result["image"].data.mean()
+        mean_val = result.get(Image).data.mean()
         assert 100 < mean_val < 155
 
     def test_annotations_merged(self, sample_image, rng):
-        pkg1 = DataPackage({
-            "image": Image.from_array(sample_image),
-            "objects": [
-                (BoundingBox(np.array([[0, 0], [10, 10]])),
-                 Label(0, "a")),
-            ],
-        })
-        pkg2 = DataPackage({
-            "image": Image.from_array(sample_image),
-            "objects": [
-                (BoundingBox(np.array([[20, 20], [40, 40]])),
-                 Label(1, "b")),
-                (BoundingBox(np.array([[50, 50], [60, 60]])),
-                 Label(2, "c")),
-            ],
-        })
+        pkg1 = DataPackage(
+            Image.from_array(sample_image),
+            ImageBoundingBox(
+                np.array([[0, 0], [10, 10]]),
+                class_id=0,
+                class_name="a",
+            ),
+        )
+        pkg2 = DataPackage(
+            Image.from_array(sample_image),
+            ImageBoundingBox(
+                np.array([[20, 20], [40, 40]]),
+                class_id=1,
+                class_name="b",
+            ),
+            ImageBoundingBox(
+                np.array([[50, 50], [60, 60]]),
+                class_id=2,
+                class_name="c",
+            ),
+        )
         t = MixUp(lam=0.5)
         result = t.apply([pkg1, pkg2], rng)
-        assert len(result["objects"]) == 3
+        assert len(_bboxes(result)) == 3
 
-    def test_labels_preserved(self, sample_image, rng):
-        pkg1 = DataPackage({
-            "image": Image.from_array(sample_image),
-            "objects": [
-                (BoundingBox(np.array([[0, 0], [10, 10]])),
-                 Label(0, "cat")),
-            ],
-        })
-        pkg2 = DataPackage({
-            "image": Image.from_array(sample_image),
-            "objects": [
-                (BoundingBox(np.array([[20, 20], [40, 40]])),
-                 Label(1, "dog")),
-            ],
-        })
+    def test_class_names_preserved(self, sample_image, rng):
+        pkg1 = DataPackage(
+            Image.from_array(sample_image),
+            ImageBoundingBox(
+                np.array([[0, 0], [10, 10]]),
+                class_id=0,
+                class_name="cat",
+            ),
+        )
+        pkg2 = DataPackage(
+            Image.from_array(sample_image),
+            ImageBoundingBox(
+                np.array([[20, 20], [40, 40]]),
+                class_id=1,
+                class_name="dog",
+            ),
+        )
         t = MixUp(lam=0.5)
         result = t.apply([pkg1, pkg2], rng)
-        labels = {lbl.name for _, lbl in result["objects"]}
-        assert labels == {"cat", "dog"}
+        names = {bb.class_name for bb in _bboxes(result)}
+        assert names == {"cat", "dog"}
 
     def test_invalid_lam_raises(self):
         with pytest.raises(ValueError):
@@ -678,9 +697,9 @@ class TestMixUp:
     def test_wrong_package_count_raises(
         self, sample_image, rng,
     ):
-        pkg = DataPackage({
-            "image": Image.from_array(sample_image),
-        })
+        pkg = DataPackage(
+            Image.from_array(sample_image),
+        )
         t = MixUp(lam=0.5)
         with pytest.raises(ValueError):
             t.apply([pkg], rng)
@@ -697,16 +716,16 @@ class TestMixUp:
 
     def test_different_sized_images(self, rng):
         """MixUp resizes second image to match first."""
-        pkg1 = DataPackage({
-            "image": Image.from_array(
+        pkg1 = DataPackage(
+            Image.from_array(
                 np.zeros((100, 80, 3), dtype=np.uint8),
             ),
-        })
-        pkg2 = DataPackage({
-            "image": Image.from_array(
+        )
+        pkg2 = DataPackage(
+            Image.from_array(
                 np.ones((50, 50, 3), dtype=np.uint8) * 255,
             ),
-        })
+        )
         t = MixUp(lam=0.5)
         result = t.apply([pkg1, pkg2], rng)
         assert _img_shape(result) == (100, 80)
@@ -729,14 +748,14 @@ class TestMosaic:
             img = np.ones(
                 (50, 50, 3), dtype=np.uint8,
             ) * (i * 60)
-            pkgs.append(DataPackage({
-                "image": Image.from_array(img),
-                "objects": [
-                    (BoundingBox(
-                        np.array([[5, 5], [20, 20]])),
-                     Label(i, f"c{i}")),
-                ],
-            }))
+            pkgs.append(DataPackage(
+                Image.from_array(img),
+                ImageBoundingBox(
+                    np.array([[5, 5], [20, 20]]),
+                    class_id=i,
+                    class_name=f"c{i}",
+                ),
+            ))
         t = Mosaic()
         result = t.apply(pkgs, rng)
         assert isinstance(result, DataPackage)
@@ -747,45 +766,49 @@ class TestMosaic:
         """All 4 packages' annotations are merged."""
         pkgs = []
         for i in range(4):
-            pkgs.append(DataPackage({
-                "image": Image.from_array(
-                    np.zeros((40, 40, 3), dtype=np.uint8),
+            pkgs.append(DataPackage(
+                Image.from_array(
+                    np.zeros(
+                        (40, 40, 3), dtype=np.uint8,
+                    ),
                 ),
-                "objects": [
-                    (BoundingBox(
-                        np.array([[5, 5], [15, 15]])),
-                     Label(i, f"c{i}")),
-                ],
-            }))
+                ImageBoundingBox(
+                    np.array([[5, 5], [15, 15]]),
+                    class_id=i,
+                    class_name=f"c{i}",
+                ),
+            ))
         t = Mosaic()
         result = t.apply(pkgs, rng)
-        assert len(result["objects"]) == 4
+        assert len(_bboxes(result)) == 4
 
-    def test_labels_preserved(self, rng):
+    def test_class_names_preserved(self, rng):
         pkgs = []
         names = ["cat", "dog", "bird", "fish"]
         for i, name in enumerate(names):
-            pkgs.append(DataPackage({
-                "image": Image.from_array(
-                    np.zeros((30, 30, 3), dtype=np.uint8),
+            pkgs.append(DataPackage(
+                Image.from_array(
+                    np.zeros(
+                        (30, 30, 3), dtype=np.uint8,
+                    ),
                 ),
-                "objects": [
-                    (BoundingBox(
-                        np.array([[2, 2], [10, 10]])),
-                     Label(i, name)),
-                ],
-            }))
+                ImageBoundingBox(
+                    np.array([[2, 2], [10, 10]]),
+                    class_id=i,
+                    class_name=name,
+                ),
+            ))
         t = Mosaic()
         result = t.apply(pkgs, rng)
-        labels = {lbl.name for _, lbl in result["objects"]}
-        assert labels == set(names)
+        found = {bb.class_name for bb in _bboxes(result)}
+        assert found == set(names)
 
     def test_wrong_package_count_raises(self, rng):
-        pkg = DataPackage({
-            "image": Image.from_array(
+        pkg = DataPackage(
+            Image.from_array(
                 np.zeros((30, 30, 3), dtype=np.uint8),
             ),
-        })
+        )
         t = Mosaic()
         with pytest.raises(ValueError):
             t.apply([pkg, pkg], rng)
@@ -795,19 +818,20 @@ class TestMosaic:
         sizes = [(60, 60), (80, 80), (50, 50), (70, 70)]
         pkgs = []
         for h, w in sizes:
-            pkgs.append(DataPackage({
-                "image": Image.from_array(
-                    np.zeros((h, w, 3), dtype=np.uint8),
+            pkgs.append(DataPackage(
+                Image.from_array(
+                    np.zeros(
+                        (h, w, 3), dtype=np.uint8,
+                    ),
                 ),
-                "objects": [
-                    (BoundingBox(
-                        np.array([[2, 2], [10, 10]])),
-                     Label(0, "x")),
-                ],
-            }))
+                ImageBoundingBox(
+                    np.array([[2, 2], [10, 10]]),
+                    class_id=0,
+                    class_name="x",
+                ),
+            ))
         t = Mosaic()
         result = t.apply(pkgs, rng)
-        # Smallest is 50x50, mosaic = 100x100
         assert _img_shape(result) == (100, 100)
 
     def test_hash_and_equality(self):

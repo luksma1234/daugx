@@ -54,17 +54,20 @@ class Shift(Transform):
         Returns:
             New DataPackage with shifted contents.
         """
-        pixels = package["image"].data
+        img = package.get(Image)
+        pixels = img.data
         h, w = pixels.shape[:2]
         affine = np.float32([
             [1, 0, self.x_shift],
             [0, 1, self.y_shift],
         ])
         shifted = cv2.warpAffine(pixels, affine, (w, h))
-        new_img = Image.from_array(shifted)
+        new_img = Image.from_array(
+            shifted, name=img.name,
+        )
 
         def op(comp):
             return comp.shift(self.x_shift, self.y_shift)
 
         annots = transform_annots(package, op, h, w)
-        return package.replace(image=new_img, **annots)
+        return DataPackage(new_img, *annots)
