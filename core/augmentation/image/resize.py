@@ -1,15 +1,17 @@
 """Resize augmentation — resize image to target dims."""
-from typing import Optional
+from typing import Callable, Optional, Tuple, Type
 
 import cv2
 import numpy as np
 
 from daugx.core.augmentation.base import Transform
 from daugx.core.augmentation.image._spatial import (
-    transform_annots,
+    _IMAGE_SPATIAL_OPS,
+    apply_and_clip,
+    is_valid,
 )
+from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
-from daugx.core.data.data_package import DataPackage
 
 
 class Resize(Transform):
@@ -25,6 +27,8 @@ class Resize(Transform):
         preserve_aspect_ratio: Whether to preserve the
             original aspect ratio via padding.
     """
+
+    operates_on: Tuple[Type[Component], ...] = _IMAGE_SPATIAL_OPS
 
     def __init__(
         self,
@@ -48,53 +52,46 @@ class Resize(Transform):
             self.preserve_aspect_ratio,
         )
 
-    def apply(
+    def _apply(
         self,
-        package: DataPackage,
+        component: Component,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Resize image and scale annotations.
+    ) -> Optional[Component]:
+        if isinstance(component, Image):
+            return self._apply_image(component, rng)
+        return self._apply_spatial(component)
 
-        Args:
-            package: Input data package.
-            rng: Unused (deterministic transform).
-
-        Returns:
-            New DataPackage with resized contents.
-        """
-        img = package.get(Image)
+    def _apply_image(
+        self,
+        img: Image,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Image:
         pixels = img.data
         orig_h, orig_w = pixels.shape[:2]
 
         if not self.preserve_aspect_ratio:
+            # cv2.resize dsize is (width, height)
             resized = cv2.resize(
                 pixels,
-                (self.height, self.width),
+                (self.width, self.height),
                 interpolation=cv2.INTER_LINEAR,
             )
-            sx = self.height / orig_w
-            sy = self.width / orig_h
-            new_img = Image.from_array(
-                resized, name=img.name,
-            )
+            sx = self.width / orig_w
+            sy = self.height / orig_h
+            self._op: Callable = lambda c: c.scale(sx, sy)
+            self._out_h = self.height
+            self._out_w = self.width
+            return Image.from_array(resized, name=img.name)
 
-            def op(comp):
-                return comp.scale(sx, sy)
-
-            annots = transform_annots(
-                package, op, self.width, self.height,
-            )
-            return DataPackage(new_img, *annots)
-
-        # Preserve aspect ratio: pad then resize
-        fy = self.width / orig_h
-        fx = self.height / orig_w
+        # Preserve aspect ratio: pad then resize.
+        fx = self.width / orig_w
+        fy = self.height / orig_h
         if fx < fy:
             # Width is the binding dimension — pad top/bot
             scale = fx
-            new_w = self.height
+            new_w = self.width
             new_h = int(orig_h * scale)
-            pad = self.width - new_h
+            pad = self.height - new_h
             pad_top = pad // 2
             pad_bot = pad - pad_top
             resized = cv2.resize(
@@ -114,17 +111,19 @@ class Resize(Transform):
                         dtype=np.uint8,
                     ),
                 ])
+            _scale = scale
+            _pad_top = pad_top
 
-            def op(comp):
-                return comp.scale(scale, scale).shift(
-                    0, pad_top,
-                )
+            def _op(c, s=_scale, pt=_pad_top):
+                return c.scale(s, s).shift(0, pt)
+
+            self._op = _op
         else:
             # Height is the binding dimension — pad sides
             scale = fy
-            new_h = self.width
+            new_h = self.height
             new_w = int(orig_w * scale)
-            pad = self.height - new_w
+            pad = self.width - new_w
             pad_left = pad // 2
             pad_right = pad - pad_left
             resized = cv2.resize(
@@ -144,16 +143,26 @@ class Resize(Transform):
                         dtype=np.uint8,
                     ),
                 ])
+            _scale = scale
+            _pad_left = pad_left
 
-            def op(comp):
-                return comp.scale(scale, scale).shift(
-                    pad_left, 0,
-                )
+            def _op(c, s=_scale, pl=_pad_left):
+                return c.scale(s, s).shift(pl, 0)
 
-        new_img = Image.from_array(
-            resized, name=img.name,
+            self._op = _op
+
+        self._out_h = self.height
+        self._out_w = self.width
+        return Image.from_array(resized, name=img.name)
+
+    def _apply_spatial(
+        self, comp: Component,
+    ) -> Optional[Component]:
+        result = apply_and_clip(
+            comp, self._op, self._out_h, self._out_w,
         )
-        annots = transform_annots(
-            package, op, self.width, self.height,
+        return (
+            result
+            if is_valid(result, self._out_h, self._out_w)
+            else None
         )
-        return DataPackage(new_img, *annots)

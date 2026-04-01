@@ -1,15 +1,17 @@
 """Scale augmentation — resize image by a factor."""
-from typing import Optional
+from typing import Optional, Tuple, Type
 
 import cv2
 import numpy as np
 
 from daugx.core.augmentation.base import Transform
 from daugx.core.augmentation.image._spatial import (
-    transform_annots,
+    _IMAGE_SPATIAL_OPS,
+    apply_and_clip,
+    is_valid,
 )
+from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
-from daugx.core.data.data_package import DataPackage
 
 
 class Scale(Transform):
@@ -21,6 +23,8 @@ class Scale(Transform):
         x_scale: Horizontal scale factor (> 0).
         y_scale: Vertical scale factor (> 0).
     """
+
+    operates_on: Tuple[Type[Component], ...] = _IMAGE_SPATIAL_OPS
 
     def __init__(
         self,
@@ -39,21 +43,20 @@ class Scale(Transform):
             self.y_scale,
         )
 
-    def apply(
+    def _apply(
         self,
-        package: DataPackage,
+        component: Component,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Apply scaling to image and annotations.
+    ) -> Optional[Component]:
+        if isinstance(component, Image):
+            return self._apply_image(component, rng)
+        return self._apply_spatial(component)
 
-        Args:
-            package: Input data package.
-            rng: Unused (deterministic transform).
-
-        Returns:
-            New DataPackage with scaled contents.
-        """
-        img = package.get(Image)
+    def _apply_image(
+        self,
+        img: Image,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Image:
         pixels = img.data
         scaled = cv2.resize(
             pixels,
@@ -62,15 +65,14 @@ class Scale(Transform):
             fy=self.y_scale,
             interpolation=cv2.INTER_LINEAR,
         )
-        new_h, new_w = scaled.shape[:2]
-        new_img = Image.from_array(
-            scaled, name=img.name,
-        )
+        self._h, self._w = scaled.shape[:2]
+        return Image.from_array(scaled, name=img.name)
 
-        def op(comp):
-            return comp.scale(self.x_scale, self.y_scale)
+    def _apply_spatial(
+        self, comp: Component,
+    ) -> Optional[Component]:
+        def op(c):
+            return c.scale(self.x_scale, self.y_scale)
 
-        annots = transform_annots(
-            package, op, new_h, new_w,
-        )
-        return DataPackage(new_img, *annots)
+        result = apply_and_clip(comp, op, self._h, self._w)
+        return result if is_valid(result, self._h, self._w) else None

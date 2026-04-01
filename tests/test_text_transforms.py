@@ -5,7 +5,7 @@ import pytest
 from daugx.core.augmentation.base import Transform
 from daugx.core.data.components.label import ImageCategory
 from daugx.core.data.components.text import Text
-from daugx.core.data.data_package import DataPackage
+from daugx.core.data.sample import Sample
 
 
 SYNONYMS = {
@@ -23,8 +23,8 @@ def rng():
 
 @pytest.fixture
 def text_package():
-    """DataPackage with text and a label."""
-    return DataPackage(
+    """Materialized Sample with text and a label."""
+    return Sample(
         Text("the good big happy cat"),
         ImageCategory(1, "positive"),
     )
@@ -32,8 +32,8 @@ def text_package():
 
 @pytest.fixture
 def no_synonym_package():
-    """DataPackage with text that has no synonym matches."""
-    return DataPackage(Text("xyz uvw abc"))
+    """Sample with text that has no synonym matches."""
+    return Sample(Text("xyz uvw abc"))
 
 
 # -------------------------------------------------------------------
@@ -115,7 +115,7 @@ class TestSynonymReplace:
         )
         t = SynonymReplace(n=1, synonyms=SYNONYMS)
         result = t.apply(text_package, rng)
-        assert isinstance(result, DataPackage)
+        assert isinstance(result, Sample)
 
 
 # -------------------------------------------------------------------

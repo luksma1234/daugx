@@ -4,7 +4,7 @@ Reference: Wei & Zou, "EDA: Easy Data Augmentation
 Techniques for Boosting Performance on Text Classification
 Tasks", 2019.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Type
 
 import numpy as np
 
@@ -12,8 +12,8 @@ from daugx.core.augmentation.base import Transform
 from daugx.core.augmentation.text._synonyms import (
     DEFAULT_SYNONYMS,
 )
+from daugx.core.data.component import Component
 from daugx.core.data.components.text import Text
-from daugx.core.data.data_package import DataPackage
 
 
 class SynonymReplace(Transform):
@@ -29,6 +29,8 @@ class SynonymReplace(Transform):
             Falls back to a small built-in thesaurus.
     """
 
+    operates_on: Tuple[Type[Component], ...] = (Text,)
+
     def __init__(
         self,
         n: int = 1,
@@ -40,33 +42,35 @@ class SynonymReplace(Transform):
     def _key(self) -> tuple:
         return (type(self).__name__, self.n)
 
-    def apply(
+    def _apply(
         self,
-        package: DataPackage,
+        component: Component,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Replace words with synonyms.
+    ) -> Component:
+        """Replace words in *component* with synonyms.
 
         Args:
-            package: Input data package.
+            component: Text component to transform.
             rng: Required random number generator.
 
         Returns:
-            New DataPackage with modified text.
+            New Text with replaced words, or the original
+            component if rng is None or no words are
+            replaceable.
         """
-        text_comp = package.get(Text)
-        if text_comp is None or rng is None:
-            return package
+        text_comp = component  # type: Text
+        if rng is None:
+            return component
         words = text_comp.words
         if not words:
-            return package
+            return component
 
         replaceable = [
             i for i, w in enumerate(words)
             if w.lower() in self.synonyms
         ]
         if not replaceable:
-            return package
+            return component
 
         n = min(self.n, len(replaceable))
         chosen = rng.choice(
@@ -78,10 +82,9 @@ class SynonymReplace(Transform):
             syns = self.synonyms[key]
             new_words[idx] = str(rng.choice(syns))
 
-        new_text = Text(
+        return Text(
             " ".join(new_words),
             text_comp.language,
             text_comp.metadata,
             name=text_comp.name,
         )
-        return package.replacing(text_comp, new_text)

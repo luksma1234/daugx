@@ -1,15 +1,17 @@
 """Rotate augmentation — rotate image around its center."""
-from typing import Optional
+from typing import Optional, Tuple, Type
 
 import cv2
 import numpy as np
 
 from daugx.core.augmentation.base import Transform
 from daugx.core.augmentation.image._spatial import (
-    transform_annots,
+    _IMAGE_SPATIAL_OPS,
+    apply_and_clip,
+    is_valid,
 )
+from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
-from daugx.core.data.data_package import DataPackage
 
 
 class Rotate(Transform):
@@ -23,27 +25,28 @@ class Rotate(Transform):
         angle: Rotation angle in degrees.
     """
 
+    operates_on: Tuple[Type[Component], ...] = _IMAGE_SPATIAL_OPS
+
     def __init__(self, angle: float) -> None:
         self.angle = angle
 
     def _key(self) -> tuple:
         return (type(self).__name__, self.angle)
 
-    def apply(
+    def _apply(
         self,
-        package: DataPackage,
+        component: Component,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Apply rotation to image and annotations.
+    ) -> Optional[Component]:
+        if isinstance(component, Image):
+            return self._apply_image(component, rng)
+        return self._apply_spatial(component)
 
-        Args:
-            package: Input data package.
-            rng: Unused (deterministic transform).
-
-        Returns:
-            New DataPackage with rotated contents.
-        """
-        img = package.get(Image)
+    def _apply_image(
+        self,
+        img: Image,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Image:
         pixels = img.data
         h, w = pixels.shape[:2]
         center = ((w - 1) / 2.0, (h - 1) / 2.0)
@@ -51,17 +54,16 @@ class Rotate(Transform):
             center, self.angle, 1,
         )
         rotated = cv2.warpAffine(pixels, mat, (w, h))
-        new_img = Image.from_array(
-            rotated, name=img.name,
-        )
-        img_center = np.array(
-            [center[0], center[1]],
-        )
+        self._h = h
+        self._w = w
+        self._center = np.array([center[0], center[1]])
+        return Image.from_array(rotated, name=img.name)
 
-        def op(comp):
-            return comp.rotate(self.angle, img_center)
+    def _apply_spatial(
+        self, comp: Component,
+    ) -> Optional[Component]:
+        def op(c):
+            return c.rotate(self.angle, self._center)
 
-        annots = transform_annots(
-            package, op, h, w,
-        )
-        return DataPackage(new_img, *annots)
+        result = apply_and_clip(comp, op, self._h, self._w)
+        return result if is_valid(result, self._h, self._w) else None

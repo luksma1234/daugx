@@ -1,7 +1,7 @@
-"""Tests for image augmentation transforms (DataPackage API).
+"""Tests for image augmentation transforms.
 
-Each transform receives a DataPackage with an Image and flat
-annotation components, and returns a new DataPackage.
+Each transform receives a materialized Sample with an Image
+and flat annotation components, and returns a new Sample.
 """
 import numpy as np
 import pytest
@@ -20,14 +20,13 @@ from daugx.core.augmentation.image.resize import Resize
 from daugx.core.augmentation.image.rotate import Rotate
 from daugx.core.augmentation.image.scale import Scale
 from daugx.core.augmentation.image.shift import Shift
-from daugx.core.data.annotation import Annotation
 from daugx.core.data.components.bounding_box import (
     ImageBoundingBox,
 )
 from daugx.core.data.components.image import Image
 from daugx.core.data.components.keypoint import ImageKeyPoint
 from daugx.core.data.components.polygon import ImagePolygon
-from daugx.core.data.data_package import DataPackage
+from daugx.core.data.sample import Sample
 
 
 # -------------------------------------------------------------------
@@ -47,9 +46,9 @@ def sample_image():
 
 @pytest.fixture
 def package(sample_image):
-    """DataPackage with image and two bounding boxes."""
+    """Sample with image and two bounding boxes."""
     img = Image.from_array(sample_image)
-    return DataPackage(
+    return Sample(
         img,
         ImageBoundingBox(
             np.array([[10, 10], [30, 30]]),
@@ -66,17 +65,17 @@ def package(sample_image):
 
 @pytest.fixture
 def package_no_annots(sample_image):
-    """DataPackage with image only (no annotations)."""
-    return DataPackage(Image.from_array(sample_image))
+    """Sample with image only (no annotations)."""
+    return Sample(Image.from_array(sample_image))
 
 
 @pytest.fixture
 def package_with_polygon():
-    """DataPackage with image and polygon annotation."""
+    """Sample with image and polygon annotation."""
     img = Image.from_array(
         np.zeros((100, 100, 3), dtype=np.uint8),
     )
-    return DataPackage(
+    return Sample(
         img,
         ImagePolygon(
             np.array(
@@ -90,11 +89,11 @@ def package_with_polygon():
 
 @pytest.fixture
 def package_with_keypoint():
-    """DataPackage with image and keypoint annotation."""
+    """Sample with image and keypoint annotation."""
     img = Image.from_array(
         np.zeros((100, 100, 3), dtype=np.uint8),
     )
-    return DataPackage(
+    return Sample(
         img,
         ImageKeyPoint(
             25.0, 25.0,
@@ -106,17 +105,17 @@ def package_with_keypoint():
 
 
 def _img_shape(pkg):
-    """Get (H, W) from a DataPackage's image."""
+    """Get (H, W) from a Sample's image."""
     return pkg.get(Image).data.shape[:2]
 
 
 def _bboxes(pkg):
-    """Get all ImageBoundingBox components from a package."""
+    """Get all ImageBoundingBox components from a sample."""
     return pkg.get_all(ImageBoundingBox)
 
 
 def _polygons(pkg):
-    """Get all ImagePolygon components from a package."""
+    """Get all ImagePolygon components from a sample."""
     return pkg.get_all(ImagePolygon)
 
 
@@ -127,7 +126,7 @@ def _keypoints(pkg):
 
 def _annots(pkg):
     """Get all annotation components from a package."""
-    return pkg.get_all(Annotation)
+    return pkg.get_annotations()
 
 
 # -------------------------------------------------------------------
@@ -138,7 +137,7 @@ class TestShift:
     def test_output_is_datapackage(self, package, rng):
         t = Shift(x_shift=10, y_shift=5)
         result = t.apply(package, rng)
-        assert isinstance(result, DataPackage)
+        assert isinstance(result, Sample)
 
     def test_is_transform_subclass(self):
         assert issubclass(Shift, Transform)
@@ -167,7 +166,7 @@ class TestShift:
         img = Image.from_array(
             np.zeros((50, 50, 3), dtype=np.uint8),
         )
-        pkg = DataPackage(
+        pkg = Sample(
             img,
             ImageBoundingBox(
                 np.array([[0, 0], [10, 10]]),
@@ -194,7 +193,7 @@ class TestShift:
         """White stripe at x=50 shifts to x=60."""
         img = np.ones((100, 100, 3), dtype=np.uint8) * 127
         img[:, 50, :] = 255
-        pkg = DataPackage(Image.from_array(img))
+        pkg = Sample(Image.from_array(img))
         t = Shift(x_shift=10, y_shift=0)
         result = t.apply(pkg)
         out = result.get(Image).data
@@ -205,7 +204,7 @@ class TestShift:
         """White stripe at y=50 shifts to y=60."""
         img = np.ones((100, 100, 3), dtype=np.uint8) * 127
         img[50, :, :] = 255
-        pkg = DataPackage(Image.from_array(img))
+        pkg = Sample(Image.from_array(img))
         t = Shift(x_shift=0, y_shift=10)
         result = t.apply(pkg)
         out = result.get(Image).data
@@ -342,7 +341,7 @@ class TestRotate:
         img = np.random.default_rng(0).integers(
             0, 255, (50, 50, 3), dtype=np.uint8,
         )
-        pkg = DataPackage(Image.from_array(img))
+        pkg = Sample(Image.from_array(img))
         t = Rotate(angle=360)
         result = t.apply(pkg, rng)
         np.testing.assert_array_equal(
@@ -365,7 +364,7 @@ class TestRotate:
     ):
         t = Rotate(angle=90)
         result = t.apply(package_with_polygon, rng)
-        assert isinstance(result, DataPackage)
+        assert isinstance(result, Sample)
 
     def test_keypoint_rotated(
         self, package_with_keypoint, rng,
@@ -405,7 +404,7 @@ class TestCrop:
         img = Image.from_array(
             np.zeros((100, 100, 3), dtype=np.uint8),
         )
-        pkg = DataPackage(img)
+        pkg = Sample(img)
         t = Crop(x_min=0.25, y_min=0.25,
                  x_max=0.75, y_max=0.75)
         result = t.apply(pkg, rng)
@@ -418,7 +417,7 @@ class TestCrop:
         img = Image.from_array(
             np.zeros((100, 100, 3), dtype=np.uint8),
         )
-        pkg = DataPackage(
+        pkg = Sample(
             img,
             ImageBoundingBox(
                 np.array([[80, 80], [95, 95]]),
@@ -443,7 +442,7 @@ class TestCrop:
         img = Image.from_array(
             np.zeros((100, 100, 3), dtype=np.uint8),
         )
-        pkg = DataPackage(
+        pkg = Sample(
             img,
             ImageBoundingBox(
                 np.array([[20, 20], [40, 40]]),
@@ -476,8 +475,14 @@ class TestCrop:
             Crop(x_min=0.5, y_min=0.1,
                  x_max=0.3, y_max=0.9)
         with pytest.raises(ValueError):
-            Crop(x_min=0.0, y_min=0.1,
+            Crop(x_min=0.9, y_min=0.1,
+                 x_max=0.5, y_max=0.9)
+
+    def test_zero_x_min_valid(self):
+        """x_min=0 is now allowed."""
+        t = Crop(x_min=0.0, y_min=0.0,
                  x_max=0.9, y_max=0.9)
+        assert t.x_min == 0.0
 
     def test_hash_and_equality(self):
         a = Crop(0.1, 0.1, 0.9, 0.9)
@@ -500,7 +505,7 @@ class TestResize:
         t = Resize(width=200, height=150)
         result = t.apply(package, rng)
         h, w = _img_shape(result)
-        assert h == 200 and w == 150
+        assert h == 150 and w == 200
 
     def test_resize_no_preserve_aspect(
         self, package, rng,
@@ -509,7 +514,7 @@ class TestResize:
                    preserve_aspect_ratio=False)
         result = t.apply(package, rng)
         h, w = _img_shape(result)
-        assert h == 200 and w == 150
+        assert h == 150 and w == 200
 
     def test_annotations_present_after_resize(
         self, package, rng,
@@ -612,7 +617,7 @@ class TestMixUp:
         assert MixUp(lam=0.5).inflation == 0.5
 
     def test_blends_two_packages(self, sample_image, rng):
-        pkg1 = DataPackage(
+        pkg1 = Sample(
             Image.from_array(
                 np.zeros_like(sample_image),
             ),
@@ -622,7 +627,7 @@ class TestMixUp:
                 class_name="a",
             ),
         )
-        pkg2 = DataPackage(
+        pkg2 = Sample(
             Image.from_array(
                 np.ones_like(sample_image) * 255,
             ),
@@ -634,14 +639,14 @@ class TestMixUp:
         )
         t = MixUp(lam=0.5)
         result = t.apply([pkg1, pkg2], rng)
-        assert isinstance(result, DataPackage)
+        assert isinstance(result, Sample)
         h, w = _img_shape(result)
         assert h == 100 and w == 80
         mean_val = result.get(Image).data.mean()
         assert 100 < mean_val < 155
 
     def test_annotations_merged(self, sample_image, rng):
-        pkg1 = DataPackage(
+        pkg1 = Sample(
             Image.from_array(sample_image),
             ImageBoundingBox(
                 np.array([[0, 0], [10, 10]]),
@@ -649,7 +654,7 @@ class TestMixUp:
                 class_name="a",
             ),
         )
-        pkg2 = DataPackage(
+        pkg2 = Sample(
             Image.from_array(sample_image),
             ImageBoundingBox(
                 np.array([[20, 20], [40, 40]]),
@@ -667,7 +672,7 @@ class TestMixUp:
         assert len(_bboxes(result)) == 3
 
     def test_class_names_preserved(self, sample_image, rng):
-        pkg1 = DataPackage(
+        pkg1 = Sample(
             Image.from_array(sample_image),
             ImageBoundingBox(
                 np.array([[0, 0], [10, 10]]),
@@ -675,7 +680,7 @@ class TestMixUp:
                 class_name="cat",
             ),
         )
-        pkg2 = DataPackage(
+        pkg2 = Sample(
             Image.from_array(sample_image),
             ImageBoundingBox(
                 np.array([[20, 20], [40, 40]]),
@@ -697,7 +702,7 @@ class TestMixUp:
     def test_wrong_package_count_raises(
         self, sample_image, rng,
     ):
-        pkg = DataPackage(
+        pkg = Sample(
             Image.from_array(sample_image),
         )
         t = MixUp(lam=0.5)
@@ -716,12 +721,12 @@ class TestMixUp:
 
     def test_different_sized_images(self, rng):
         """MixUp resizes second image to match first."""
-        pkg1 = DataPackage(
+        pkg1 = Sample(
             Image.from_array(
                 np.zeros((100, 80, 3), dtype=np.uint8),
             ),
         )
-        pkg2 = DataPackage(
+        pkg2 = Sample(
             Image.from_array(
                 np.ones((50, 50, 3), dtype=np.uint8) * 255,
             ),
@@ -748,7 +753,7 @@ class TestMosaic:
             img = np.ones(
                 (50, 50, 3), dtype=np.uint8,
             ) * (i * 60)
-            pkgs.append(DataPackage(
+            pkgs.append(Sample(
                 Image.from_array(img),
                 ImageBoundingBox(
                     np.array([[5, 5], [20, 20]]),
@@ -758,7 +763,7 @@ class TestMosaic:
             ))
         t = Mosaic()
         result = t.apply(pkgs, rng)
-        assert isinstance(result, DataPackage)
+        assert isinstance(result, Sample)
         h, w = _img_shape(result)
         assert h == 100 and w == 100
 
@@ -766,7 +771,7 @@ class TestMosaic:
         """All 4 packages' annotations are merged."""
         pkgs = []
         for i in range(4):
-            pkgs.append(DataPackage(
+            pkgs.append(Sample(
                 Image.from_array(
                     np.zeros(
                         (40, 40, 3), dtype=np.uint8,
@@ -786,7 +791,7 @@ class TestMosaic:
         pkgs = []
         names = ["cat", "dog", "bird", "fish"]
         for i, name in enumerate(names):
-            pkgs.append(DataPackage(
+            pkgs.append(Sample(
                 Image.from_array(
                     np.zeros(
                         (30, 30, 3), dtype=np.uint8,
@@ -804,7 +809,7 @@ class TestMosaic:
         assert found == set(names)
 
     def test_wrong_package_count_raises(self, rng):
-        pkg = DataPackage(
+        pkg = Sample(
             Image.from_array(
                 np.zeros((30, 30, 3), dtype=np.uint8),
             ),
@@ -818,7 +823,7 @@ class TestMosaic:
         sizes = [(60, 60), (80, 80), (50, 50), (70, 70)]
         pkgs = []
         for h, w in sizes:
-            pkgs.append(DataPackage(
+            pkgs.append(Sample(
                 Image.from_array(
                     np.zeros(
                         (h, w, 3), dtype=np.uint8,

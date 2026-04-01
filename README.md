@@ -17,7 +17,7 @@ pip install daugx
 ```python
 import daugx
 import numpy as np
-from daugx.augmentations import Resize, Shift, Rotate
+from daugx.core.augmentation.image import Resize, Shift, Rotate
 
 # 1. Build samples — pass components directly
 samples = [
@@ -63,7 +63,7 @@ COCO
 
 ```python
 # Fetch augmented samples — data is materialized here, not before
-result = fetch()  # Returns a DataPackage with loaded components
+result = fetch()  # Returns a materialized Sample
 ```
 
 ## Features
@@ -96,11 +96,10 @@ pipeline = daugx.Pipeline(seed=42)
 c1 = pipeline.input(coco).then(Resize(640, 640))
 c2 = pipeline.input(coco).then(Resize(640, 640))
 v1 = pipeline.input(voc).then(Resize(640, 640)).then(Rotate(15))
-v2 = pipeline.input(voc).then(Resize(640, 640)).then(Flip())
+v2 = pipeline.input(voc).then(Resize(640, 640))
 
 # Combine 4 independently augmented streams into a mosaic
 out = pipeline.merge([c1, c2, v1, v2], Mosaic())
-out.then(Normalize())
 ```
 
 ### Probability Control
@@ -137,10 +136,10 @@ shares, execution probabilities, and ext_exe_prob on output nodes.
 
 ### Data Loading
 
-Data loading uses a Sample/DataPackage architecture:
+`Sample` is the single container used throughout the full lifecycle:
 
-1. **Sample** holds preloaded components (paths + lightweight data)
-2. **DataPackage** is a materialized sample with all data loaded
+1. **Before `materialize()`**: holds paths and lightweight data (preloaded)
+2. **After `materialize()`**: all heavy data loaded in-place, ready for transforms
 
 Components are passed directly to `Sample` as positional arguments.
 All annotation types are first-class `Component` subclasses — there is
@@ -157,12 +156,12 @@ sample = daugx.Sample(
     daugx.Constant(value=1234, name="image_id"),
 )
 
-# Materialize: loads heavy data (images) on demand
-package = sample.materialize()
-package.get(daugx.Image).data            # np.ndarray (H, W, C)
-package.get_all(daugx.ImageBoundingBox)  # all bbox annotations
-package.get_annotations()                # all annotation components
-package.get(daugx.Constant, name="image_id").value  # 1234
+# Materialize: loads heavy data in-place, returns self
+sample.materialize()
+sample.get(daugx.Image).data            # np.ndarray (H, W, C)
+sample.get_all(daugx.ImageBoundingBox)  # all bbox annotations
+sample.get_annotations()                # all annotation components
+sample.get(daugx.Constant, name="image_id").value  # 1234
 ```
 
 Components are either **heavy** (`Image` — starts preloaded, loads via
@@ -171,9 +170,9 @@ cv2 on `materialize()`) or **lightweight** (all annotation types,
 
 ### Annotation Types
 
-Annotations are `Component` subclasses that carry a `target` field
-linking them to their parent component's `name`, plus `class_id` and
-`class_name` where applicable.
+Annotation types are direct `Component` subclasses. They carry a
+`target` field linking them to their parent component's `name`, plus
+`class_id` and `class_name` where applicable.
 
 | Type | Description |
 |------|-------------|
@@ -189,25 +188,62 @@ and `is_valid()`. These methods return new instances and propagate
 
 ### Multimodal Samples
 
-For datasets with multiple modalities, use `name` to identify which
-modality a component belongs to, and `target` to link annotations to
-their parent component.
+For datasets with multiple modalities or multiple images per sample,
+use `name` to identify components and `target` to link each annotation
+to its parent component.
 
 ```python
+# Two cameras, each with its own bounding boxes
 sample = daugx.Sample(
-    daugx.Image(path="frame.jpg", name="video"),
-    daugx.ImageBoundingBox(
-        bb, class_id=0, class_name="cat", target="video",
-    ),
-    daugx.ImageCategory(1, "scene", target="video"),
+    daugx.Image(path="left.jpg",  name="left"),
+    daugx.Image(path="right.jpg", name="right"),
+    daugx.ImageBoundingBox(bb_left,  class_id=0, target="left"),
+    daugx.ImageBoundingBox(bb_right, class_id=0, target="right"),
+    daugx.Constant(value=42, name="frame_id"),
+)
+```
+
+Transforms automatically apply to **all** Images and scope each
+annotation's transformation to the Image it targets. Non-Image,
+non-annotation components like `Constant` and `Text` pass through
+unchanged.
+
+```python
+from daugx.core.augmentation.image import Resize
+
+# Both Images are resized; each bbox transforms only with its own Image
+sample.materialize()
+result = Resize(640, 640).apply(sample)
+
+result.get_all(daugx.Image)              # 2 resized Images
+result.get(daugx.Constant, name="frame_id").value  # 42 — preserved
+```
+
+### Sample Validation
+
+`Sample` validates annotations at construction time and raises
+`daugx.InvalidComponentError` for invalid configurations:
+
+```python
+# Raises InvalidComponentError — no component named "missing"
+daugx.Sample(
+    daugx.Image(path="img.jpg"),
+    daugx.ImageBoundingBox(pts, target="missing"),
 )
 
-# Retrieve by modality
-sample.get(daugx.Image, name="video")
-sample.get_annotations(target="video")
+# Raises InvalidComponentError — ambiguous: which Image does this belong to?
+daugx.Sample(
+    daugx.Image(path="a.jpg", name="left"),
+    daugx.Image(path="b.jpg", name="right"),
+    daugx.ImageBoundingBox(pts),  # target=None with two Images
+)
 
-# Discover which modalities are present
-sample.modalities()  # {"video"}
+# Fix: give each annotation an explicit target
+daugx.Sample(
+    daugx.Image(path="a.jpg", name="left"),
+    daugx.Image(path="b.jpg", name="right"),
+    daugx.ImageBoundingBox(pts, target="left"),
+)
 ```
 
 ### Constants
@@ -221,6 +257,8 @@ sample = daugx.Sample(
     daugx.Constant(value=42, name="image_id"),
     daugx.Constant(value="train", name="split"),
 )
+sample.materialize()
+sample.get(daugx.Constant, name="image_id").value  # 42
 ```
 
 ### Merging Samples
@@ -233,7 +271,39 @@ merged = sample_a.merge(sample_b)
 merged = sample_a + sample_b  # equivalent
 ```
 
-The same methods are available on `DataPackage`.
+### Custom Transforms
+
+`Transform` and `MultiInputTransform` are exported from `daugx` directly
+so you can subclass without importing from internal modules.
+
+```python
+from daugx import Transform
+from daugx.core.augmentation.image._spatial import (
+    _IMAGE_SPATIAL_OPS, apply_and_clip, is_valid,
+)
+from daugx.core.data.components.image import Image
+
+class MyTransform(Transform):
+    operates_on = _IMAGE_SPATIAL_OPS
+    # = (Image, ImageBoundingBox, ImagePolygon, ImageKeyPoint)
+
+    def _key(self):
+        return (type(self).__name__,)
+
+    def _apply(self, component, rng=None):
+        if isinstance(component, Image):
+            return self._apply_image(component, rng)
+        return self._apply_spatial(component)
+
+    def _apply_image(self, img, rng=None):
+        # transform pixels, store output dims
+        self._h, self._w = new_pixels.shape[:2]
+        return Image.from_array(new_pixels, name=img.name)
+
+    def _apply_spatial(self, comp):
+        result = apply_and_clip(comp, op_fn, self._h, self._w)
+        return result if is_valid(result, self._h, self._w) else None
+```
 
 ## API Reference
 
@@ -242,10 +312,10 @@ The same methods are available on `DataPackage`.
 | Class | Description |
 |-------|-------------|
 | `Pipeline(seed=None)` | DAG builder. Methods: `input()`, `merge()`, `compile()` |
-| `Dataset(samples, name=None)` | Collection of samples |
-| `Sample(*components)` | Preloaded augmentation unit. `materialize()`, `merge()`, `modalities()`, `get_annotations()` |
-| `DataPackage` | Materialized sample. `get(type)`, `get_all(type)`, `get_annotations()`, `replacing(old, new)`, `merge()`, `modalities()` |
-| `Annotation` | Abstract base for all annotation components. Adds `target` field. |
+| `Dataset(samples, name=None)` | Collection of samples. Supports `len()`, iteration, and index access. |
+| `Sample(*components)` | Component holder. Validates annotations at construction. `materialize()`, `replacing(old, new)`, `merge()`, `modalities()`, `get()`, `get_all()`, `get_annotations()` |
+| `Transform` | Base class for single-input transforms. Subclass and implement `_apply(component, rng)`, `_key`. |
+| `MultiInputTransform` | Base class for multi-input transforms. Subclass and implement `apply`, `_key`. |
 | `Image(path, format_hint=None, name=None)` | Heavy component: path → pixels via cv2 |
 | `Text(text, language="en", metadata=None, name=None)` | Lightweight: text content |
 | `Constant(value, name=None)` | Lightweight: any immutable value |
@@ -253,6 +323,7 @@ The same methods are available on `DataPackage`.
 | `ImagePolygon(points, class_id=None, class_name=None, target=None, name=None)` | Polygon boundary |
 | `ImageKeyPoint(x, y, visibility=None, class_id=None, class_name=None, target=None, name=None)` | Single keypoint |
 | `ImageCategory(class_id, class_name=None, target=None, name=None)` | Image-level category label |
+| `InvalidComponentError` | Raised by `Sample` for orphaned or ambiguous annotations |
 | `Node` | Handle returned by builder methods: `then()`, `split()` |
 | `CompiledPipeline` | Callable returned by `compile()`: `__call__()`, `stream(n)`, `trace()`, `reset()` |
 

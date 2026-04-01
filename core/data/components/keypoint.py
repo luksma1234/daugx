@@ -3,11 +3,16 @@ from typing import Optional
 
 import numpy as np
 
-from daugx.core.data.annotation import Annotation
+from daugx.core.data.component import Component, ComponentState
+from daugx.core.data.components.image import Image
 
 
-class ImageKeyPoint(Annotation):
+class ImageKeyPoint(Component):
     """Single keypoint annotation for images.
+
+    Attributes:
+        applies_to: Keypoints annotate :class:`Image`
+            components.
 
     Args:
         x: X coordinate.
@@ -20,6 +25,8 @@ class ImageKeyPoint(Annotation):
         name: Optional disambiguation name.
     """
 
+    applies_to = Image
+
     def __init__(
         self,
         x: float,
@@ -30,12 +37,30 @@ class ImageKeyPoint(Annotation):
         target: Optional[str] = None,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(target=target, name=name)
+        super().__init__()
+        self._component_name = name
+        self._target = target
         self._x = float(x)
         self._y = float(y)
         self._visibility = visibility
         self._class_id = class_id
         self._class_name = class_name
+
+    @property
+    def target(self) -> Optional[str]:
+        """Name of the parent Image this annotation belongs to."""
+        return self._target
+
+    @property
+    def state(self) -> ComponentState:
+        return ComponentState.MATERIALIZED
+
+    @property
+    def is_materialized(self) -> bool:
+        return True
+
+    def materialize(self) -> None:
+        pass
 
     @property
     def x(self) -> float:

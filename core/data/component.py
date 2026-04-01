@@ -34,7 +34,6 @@ class Component(ABC):
 
     def __init__(self) -> None:
         self._component_name: Optional[str] = None
-        self._component_state: Optional[ComponentState] = None
 
     @property
     def name(self) -> Optional[str]:

@@ -1,15 +1,17 @@
 """Shift augmentation — translates image pixels."""
-from typing import Optional
+from typing import Optional, Tuple, Type
 
 import cv2
 import numpy as np
 
 from daugx.core.augmentation.base import Transform
 from daugx.core.augmentation.image._spatial import (
-    transform_annots,
+    _IMAGE_SPATIAL_OPS,
+    apply_and_clip,
+    is_valid,
 )
+from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
-from daugx.core.data.data_package import DataPackage
 
 
 class Shift(Transform):
@@ -24,6 +26,8 @@ class Shift(Transform):
         y_shift: Vertical shift in pixels
             (positive = down).
     """
+
+    operates_on: Tuple[Type[Component], ...] = _IMAGE_SPATIAL_OPS
 
     def __init__(
         self,
@@ -40,21 +44,20 @@ class Shift(Transform):
             self.y_shift,
         )
 
-    def apply(
+    def _apply(
         self,
-        package: DataPackage,
+        component: Component,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Apply shift to image and annotations.
+    ) -> Optional[Component]:
+        if isinstance(component, Image):
+            return self._apply_image(component, rng)
+        return self._apply_spatial(component)
 
-        Args:
-            package: Input data package.
-            rng: Unused (deterministic transform).
-
-        Returns:
-            New DataPackage with shifted contents.
-        """
-        img = package.get(Image)
+    def _apply_image(
+        self,
+        img: Image,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Image:
         pixels = img.data
         h, w = pixels.shape[:2]
         affine = np.float32([
@@ -62,12 +65,15 @@ class Shift(Transform):
             [0, 1, self.y_shift],
         ])
         shifted = cv2.warpAffine(pixels, affine, (w, h))
-        new_img = Image.from_array(
-            shifted, name=img.name,
-        )
+        self._h = h
+        self._w = w
+        return Image.from_array(shifted, name=img.name)
 
-        def op(comp):
-            return comp.shift(self.x_shift, self.y_shift)
+    def _apply_spatial(
+        self, comp: Component,
+    ) -> Optional[Component]:
+        def op(c):
+            return c.shift(self.x_shift, self.y_shift)
 
-        annots = transform_annots(package, op, h, w)
-        return DataPackage(new_img, *annots)
+        result = apply_and_clip(comp, op, self._h, self._w)
+        return result if is_valid(result, self._h, self._w) else None

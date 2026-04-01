@@ -8,10 +8,9 @@ import cv2
 import numpy as np
 
 from daugx.core.augmentation.base import MultiInputTransform
-from daugx.core.data.annotation import Annotation
 from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
-from daugx.core.data.data_package import DataPackage
+from daugx.core.data.sample import Sample
 
 
 class MixUp(MultiInputTransform):
@@ -20,6 +19,8 @@ class MixUp(MultiInputTransform):
     The blended image is
     ``lam * image_1 + (1 - lam) * image_2``.
     Annotations from both inputs are concatenated.
+    Non-Image, non-Annotation components from both
+    packages are preserved.
 
     Args:
         lam: Blending weight in ``[0.4, 0.6]``.
@@ -39,30 +40,31 @@ class MixUp(MultiInputTransform):
 
     def apply(
         self,
-        packages: List[DataPackage],
+        samples: List[Sample],
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Blend two data packages.
+    ) -> Sample:
+        """Blend two samples.
 
         Args:
-            packages: Exactly two DataPackages.
+            samples: Exactly two materialized Samples.
             rng: Unused (deterministic given lam).
 
         Returns:
-            A new DataPackage with blended image and
-            concatenated annotations.
+            A new Sample with blended image, concatenated
+            annotations, and all other components
+            preserved.
 
         Raises:
-            ValueError: If not exactly 2 packages.
+            ValueError: If not exactly 2 samples.
         """
-        if len(packages) != 2:
+        if len(samples) != 2:
             raise ValueError(
-                f"MixUp needs exactly 2 packages, "
-                f"got {len(packages)}"
+                f"MixUp needs exactly 2 samples, "
+                f"got {len(samples)}"
             )
-        pkg1, pkg2 = packages
-        img1 = pkg1.get(Image).data
-        img2 = pkg2.get(Image).data
+        s1, s2 = samples
+        img1 = s1.get(Image).data
+        img2 = s2.get(Image).data
 
         # Resize img2 to match img1 if needed
         if img1.shape != img2.shape:
@@ -78,9 +80,12 @@ class MixUp(MultiInputTransform):
         )
         new_img = Image.from_array(blended)
 
-        # Merge annotation components from both packages
-        annots: List[Component] = (
-            pkg1.get_all(Annotation)
-            + pkg2.get_all(Annotation)
-        )
-        return DataPackage(new_img, *annots)
+        # Collect annotations and non-Image other components
+        others: List[Component] = []
+        for s in samples:
+            for comp in s.components:
+                if isinstance(comp, Image):
+                    continue
+                others.append(comp)
+
+        return Sample(new_img, *others)

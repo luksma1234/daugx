@@ -1,21 +1,23 @@
 """Crop augmentation — extract a sub-region of the image."""
-from typing import Optional
+from typing import Optional, Tuple, Type
 
 import numpy as np
 
 from daugx.core.augmentation.base import Transform
 from daugx.core.augmentation.image._spatial import (
-    transform_annots,
+    _IMAGE_SPATIAL_OPS,
+    apply_and_clip,
+    is_valid,
 )
+from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
-from daugx.core.data.data_package import DataPackage
 
 
 class Crop(Transform):
     """Crop an image to a percentage-based region.
 
     Boundaries are specified as fractions of the image
-    dimensions in the range ``(0, 1]``.
+    dimensions in the range ``[0, 1]``.
 
     Args:
         x_min: Left boundary (fraction of width).
@@ -24,6 +26,8 @@ class Crop(Transform):
         y_max: Bottom boundary (fraction of height).
     """
 
+    operates_on: Tuple[Type[Component], ...] = _IMAGE_SPATIAL_OPS
+
     def __init__(
         self,
         x_min: float,
@@ -31,11 +35,11 @@ class Crop(Transform):
         x_max: float,
         y_max: float,
     ) -> None:
-        if not (0 < x_min < x_max <= 1):
+        if not (0 <= x_min < x_max <= 1):
             raise ValueError(
                 f"Invalid x bounds: {x_min}, {x_max}"
             )
-        if not (0 < y_min < y_max <= 1):
+        if not (0 <= y_min < y_max <= 1):
             raise ValueError(
                 f"Invalid y bounds: {y_min}, {y_max}"
             )
@@ -53,21 +57,20 @@ class Crop(Transform):
             self.y_max,
         )
 
-    def apply(
+    def _apply(
         self,
-        package: DataPackage,
+        component: Component,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Crop image and adjust annotations.
+    ) -> Optional[Component]:
+        if isinstance(component, Image):
+            return self._apply_image(component, rng)
+        return self._apply_spatial(component)
 
-        Args:
-            package: Input data package.
-            rng: Unused (deterministic transform).
-
-        Returns:
-            New DataPackage with cropped contents.
-        """
-        img = package.get(Image)
+    def _apply_image(
+        self,
+        img: Image,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Image:
         pixels = img.data
         h, w = pixels.shape[:2]
         x0 = int(w * self.x_min)
@@ -75,15 +78,16 @@ class Crop(Transform):
         x1 = int(w * self.x_max)
         y1 = int(h * self.y_max)
         cropped = pixels[y0:y1, x0:x1, :]
-        new_h, new_w = cropped.shape[:2]
-        new_img = Image.from_array(
-            cropped, name=img.name,
-        )
+        self._h, self._w = cropped.shape[:2]
+        self._x0 = x0
+        self._y0 = y0
+        return Image.from_array(cropped, name=img.name)
 
-        def op(comp):
-            return comp.shift(-x0, -y0)
+    def _apply_spatial(
+        self, comp: Component,
+    ) -> Optional[Component]:
+        def op(c):
+            return c.shift(-self._x0, -self._y0)
 
-        annots = transform_annots(
-            package, op, new_h, new_w,
-        )
-        return DataPackage(new_img, *annots)
+        result = apply_and_clip(comp, op, self._h, self._w)
+        return result if is_valid(result, self._h, self._w) else None

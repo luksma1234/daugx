@@ -3,14 +3,19 @@ from typing import Optional
 
 import numpy as np
 
-from daugx.core.data.annotation import Annotation
+from daugx.core.data.component import Component, ComponentState
+from daugx.core.data.components.image import Image
 
 
-class ImageBoundingBox(Annotation):
+class ImageBoundingBox(Component):
     """Axis-aligned bounding box annotation for images.
 
     Stores coordinates as a (2, 2) numpy array:
     ``[[x_min, y_min], [x_max, y_max]]``.
+
+    Attributes:
+        applies_to: Bounding boxes annotate :class:`Image`
+            components.
 
     Args:
         points: Array of shape (2, 2).
@@ -24,6 +29,8 @@ class ImageBoundingBox(Annotation):
         ValueError: If *points* is not shape (2, 2).
     """
 
+    applies_to = Image
+
     def __init__(
         self,
         points: np.ndarray,
@@ -32,7 +39,9 @@ class ImageBoundingBox(Annotation):
         target: Optional[str] = None,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(target=target, name=name)
+        super().__init__()
+        self._component_name = name
+        self._target = target
         pts = np.asarray(points, dtype=float)
         if pts.shape != (2, 2):
             raise ValueError(
@@ -41,6 +50,22 @@ class ImageBoundingBox(Annotation):
         self._points = pts
         self._class_id = class_id
         self._class_name = class_name
+
+    @property
+    def target(self) -> Optional[str]:
+        """Name of the parent Image this annotation belongs to."""
+        return self._target
+
+    @property
+    def state(self) -> ComponentState:
+        return ComponentState.MATERIALIZED
+
+    @property
+    def is_materialized(self) -> bool:
+        return True
+
+    def materialize(self) -> None:
+        pass
 
     @property
     def points(self) -> np.ndarray:

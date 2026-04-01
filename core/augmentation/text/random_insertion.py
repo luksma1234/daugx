@@ -4,7 +4,7 @@ Reference: Wei & Zou, "EDA: Easy Data Augmentation
 Techniques for Boosting Performance on Text Classification
 Tasks", 2019.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Type
 
 import numpy as np
 
@@ -12,8 +12,8 @@ from daugx.core.augmentation.base import Transform
 from daugx.core.augmentation.text._synonyms import (
     DEFAULT_SYNONYMS,
 )
+from daugx.core.data.component import Component
 from daugx.core.data.components.text import Text
-from daugx.core.data.data_package import DataPackage
 
 
 class RandomInsertion(Transform):
@@ -28,6 +28,8 @@ class RandomInsertion(Transform):
         synonyms: Custom ``{word: [synonyms]}`` mapping.
     """
 
+    operates_on: Tuple[Type[Component], ...] = (Text,)
+
     def __init__(
         self,
         n: int = 1,
@@ -39,33 +41,35 @@ class RandomInsertion(Transform):
     def _key(self) -> tuple:
         return (type(self).__name__, self.n)
 
-    def apply(
+    def _apply(
         self,
-        package: DataPackage,
+        component: Component,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
+    ) -> Component:
         """Insert synonym words at random positions.
 
         Args:
-            package: Input data package.
+            component: Text component to transform.
             rng: Required random number generator.
 
         Returns:
-            New DataPackage with modified text.
+            New Text with inserted words, or the original
+            component if rng is None or no words have
+            synonyms.
         """
-        text_comp = package.get(Text)
-        if text_comp is None or rng is None:
-            return package
+        text_comp = component  # type: Text
+        if rng is None:
+            return component
         words = list(text_comp.words)
         if not words:
-            return package
+            return component
 
         replaceable = [
             i for i, w in enumerate(words)
             if w.lower() in self.synonyms
         ]
         if not replaceable:
-            return package
+            return component
 
         for _ in range(self.n):
             idx = int(rng.choice(replaceable))
@@ -75,10 +79,9 @@ class RandomInsertion(Transform):
             pos = int(rng.integers(0, len(words) + 1))
             words.insert(pos, syn)
 
-        new_text = Text(
+        return Text(
             " ".join(words),
             text_comp.language,
             text_comp.metadata,
             name=text_comp.name,
         )
-        return package.replacing(text_comp, new_text)

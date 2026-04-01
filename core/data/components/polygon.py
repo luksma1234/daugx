@@ -3,11 +3,16 @@ from typing import Optional
 
 import numpy as np
 
-from daugx.core.data.annotation import Annotation
+from daugx.core.data.component import Component, ComponentState
+from daugx.core.data.components.image import Image
 
 
-class ImagePolygon(Annotation):
+class ImagePolygon(Component):
     """Polygon annotation for images.
+
+    Attributes:
+        applies_to: Polygons annotate :class:`Image`
+            components.
 
     Args:
         points: Array of shape (n, 2) with n >= 3.
@@ -21,6 +26,8 @@ class ImagePolygon(Annotation):
         ValueError: If fewer than 3 points or wrong shape.
     """
 
+    applies_to = Image
+
     def __init__(
         self,
         points: np.ndarray,
@@ -29,7 +36,9 @@ class ImagePolygon(Annotation):
         target: Optional[str] = None,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(target=target, name=name)
+        super().__init__()
+        self._component_name = name
+        self._target = target
         pts = np.asarray(points, dtype=float)
         if pts.ndim != 2 or pts.shape[1] != 2:
             raise ValueError(
@@ -44,6 +53,22 @@ class ImagePolygon(Annotation):
         self._points = pts
         self._class_id = class_id
         self._class_name = class_name
+
+    @property
+    def target(self) -> Optional[str]:
+        """Name of the parent Image this annotation belongs to."""
+        return self._target
+
+    @property
+    def state(self) -> ComponentState:
+        return ComponentState.MATERIALIZED
+
+    @property
+    def is_materialized(self) -> bool:
+        return True
+
+    def materialize(self) -> None:
+        pass
 
     @property
     def points(self) -> np.ndarray:

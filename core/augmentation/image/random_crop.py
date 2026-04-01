@@ -4,8 +4,12 @@ from typing import Optional
 import numpy as np
 
 from daugx.core.augmentation.base import Transform
+from daugx.core.augmentation.image._spatial import (
+    _IMAGE_SPATIAL_OPS,
+)
 from daugx.core.augmentation.image.crop import Crop
-from daugx.core.data.data_package import DataPackage
+from daugx.core.data.component import Component
+from daugx.core.data.sample import Sample
 
 
 class RandomCrop(Transform):
@@ -24,6 +28,8 @@ class RandomCrop(Transform):
         max_height: Maximum crop height as fraction of
             image height.
     """
+
+    operates_on = _IMAGE_SPATIAL_OPS
 
     def __init__(
         self,
@@ -52,17 +58,17 @@ class RandomCrop(Transform):
 
     def apply(
         self,
-        package: DataPackage,
+        sample: Sample,
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
+    ) -> Sample:
         """Apply a random crop.
 
         Args:
-            package: Input data package.
+            sample: Input materialized sample.
             rng: Required random number generator.
 
         Returns:
-            New DataPackage with cropped contents.
+            New Sample with cropped contents.
 
         Raises:
             ValueError: If *rng* is None.
@@ -90,10 +96,19 @@ class RandomCrop(Transform):
         y_max = y_min + crop_h
 
         # Clamp to valid range
-        x_min = max(x_min, 1e-6)
-        y_min = max(y_min, 1e-6)
+        x_min = max(x_min, 0.0)
+        y_min = max(y_min, 0.0)
         x_max = min(x_max, 1.0)
         y_max = min(y_max, 1.0)
 
         cropper = Crop(x_min, y_min, x_max, y_max)
-        return cropper.apply(package, rng)
+        return cropper.apply(sample, rng)
+
+    def _apply(
+        self,
+        component: Component,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Optional[Component]:
+        # RandomCrop always delegates to Crop.apply() and
+        # never reaches this method directly.
+        raise NotImplementedError  # pragma: no cover

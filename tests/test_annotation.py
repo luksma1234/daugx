@@ -1,8 +1,7 @@
-"""Tests for the Annotation base class and annotation components."""
+"""Tests for shared annotation component behaviour."""
 import numpy as np
 import pytest
 
-from daugx.core.data.annotation import Annotation
 from daugx.core.data.component import Component, ComponentState
 from daugx.core.data.components.bounding_box import (
     ImageBoundingBox,
@@ -18,23 +17,23 @@ class TestAnnotationBase:
             np.array([[0, 0], [10, 10]]),
         )
         assert isinstance(bbox, Component)
-        assert isinstance(bbox, Annotation)
+        assert hasattr(bbox, 'applies_to')
 
     def test_image_category_is_annotation(self):
         cat = ImageCategory(class_id=0)
-        assert isinstance(cat, Annotation)
+        assert hasattr(cat, 'applies_to')
         assert isinstance(cat, Component)
 
     def test_image_polygon_is_annotation(self):
         poly = ImagePolygon(
             np.array([[0, 0], [5, 0], [5, 5]]),
         )
-        assert isinstance(poly, Annotation)
+        assert hasattr(poly, 'applies_to')
         assert isinstance(poly, Component)
 
     def test_image_keypoint_is_annotation(self):
         kp = ImageKeyPoint(x=5.0, y=10.0)
-        assert isinstance(kp, Annotation)
+        assert hasattr(kp, 'applies_to')
         assert isinstance(kp, Component)
 
 

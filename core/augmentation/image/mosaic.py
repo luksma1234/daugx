@@ -8,10 +8,9 @@ from daugx.core.augmentation.base import MultiInputTransform
 from daugx.core.augmentation.image._spatial import (
     _SPATIAL_TYPES,
 )
-from daugx.core.data.annotation import Annotation
 from daugx.core.data.component import Component
 from daugx.core.data.components.image import Image
-from daugx.core.data.data_package import DataPackage
+from daugx.core.data.sample import Sample
 
 
 class Mosaic(MultiInputTransform):
@@ -19,7 +18,10 @@ class Mosaic(MultiInputTransform):
 
     All images are resized to the smallest input size
     before stitching.  The output is twice the size of
-    each cell.
+    each cell.  Annotations are spatially transformed
+    to their respective positions in the mosaic.
+    Non-Image, non-Annotation components from all
+    packages are preserved.
 
     Layout::
 
@@ -40,39 +42,41 @@ class Mosaic(MultiInputTransform):
 
     def apply(
         self,
-        packages: List[DataPackage],
+        samples: List[Sample],
         rng: Optional[np.random.Generator] = None,
-    ) -> DataPackage:
-        """Stitch four packages into a mosaic.
+    ) -> Sample:
+        """Stitch four samples into a mosaic.
 
         Args:
-            packages: Exactly four DataPackages.
+            samples: Exactly four materialized Samples.
             rng: Unused.
 
         Returns:
-            A new DataPackage with the mosaic image.
+            A new Sample with the mosaic image, spatially
+            adjusted annotations, and all other components
+            preserved.
 
         Raises:
-            ValueError: If not exactly 4 packages.
+            ValueError: If not exactly 4 samples.
         """
-        if len(packages) != 4:
+        if len(samples) != 4:
             raise ValueError(
-                f"Mosaic needs exactly 4 packages, "
-                f"got {len(packages)}"
+                f"Mosaic needs exactly 4 samples, "
+                f"got {len(samples)}"
             )
 
         # Find smallest cell size
         shapes = [
-            p.get(Image).data.shape[:2]
-            for p in packages
+            s.get(Image).data.shape[:2]
+            for s in samples
         ]
         cell_h = min(s[0] for s in shapes)
         cell_w = min(s[1] for s in shapes)
 
         # Resize each image to cell size
         cells = []
-        for pkg in packages:
-            img = pkg.get(Image).data
+        for s in samples:
+            img = s.get(Image).data
             if img.shape[:2] != (cell_h, cell_w):
                 img = cv2.resize(
                     img,
@@ -101,22 +105,27 @@ class Mosaic(MultiInputTransform):
             for s in shapes
         ]
 
-        all_annots: List[Component] = []
-        for idx, pkg in enumerate(packages):
+        result: List[Component] = [new_img]
+        for idx, s in enumerate(samples):
             sx, sy = scales[idx]
             dx, dy = offsets[idx]
-            for comp in pkg.get_all(Annotation):
-                if isinstance(comp, _SPATIAL_TYPES):
-                    all_annots.append(
-                        _scale_shift_clip(
-                            comp, sx, sy, dx, dy,
-                            out_h, out_w,
-                        ),
-                    )
+            for comp in s.components:
+                if isinstance(comp, Image):
+                    continue
+                if hasattr(comp, 'applies_to'):
+                    if isinstance(comp, _SPATIAL_TYPES):
+                        result.append(
+                            _scale_shift_clip(
+                                comp, sx, sy, dx, dy,
+                                out_h, out_w,
+                            ),
+                        )
+                    else:
+                        result.append(comp)
                 else:
-                    all_annots.append(comp)
+                    result.append(comp)
 
-        return DataPackage(new_img, *all_annots)
+        return Sample(*result)
 
 
 def _scale_shift_clip(comp, sx, sy, dx, dy, h, w):

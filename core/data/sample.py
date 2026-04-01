@@ -1,7 +1,8 @@
-"""Sample — preloaded component holder."""
+"""Sample — component holder with lazy materialization."""
 from __future__ import annotations
 
 from typing import (
+    Iterator,
     List,
     Optional,
     Set,
@@ -10,25 +11,73 @@ from typing import (
     TypeVar,
 )
 
-from daugx.core.data.annotation import Annotation
 from daugx.core.data.component import Component
+from daugx.errors.invalid_component import InvalidComponentError
 
 T = TypeVar("T")
 
 
 class Sample:
-    """One augmentation unit in preloaded state.
+    """Component holder with lazy materialization.
 
     Takes positional ``Component`` instances — including
-    annotation components (subclasses of ``Annotation``).
-    No string keys.
+    annotation components (those with an ``applies_to``
+    class attribute).
+    Lightweight components (annotations, Text, Constant) are
+    born materialized; heavy ones (Image) are materialized by
+    calling :meth:`materialize`.
 
     Args:
         *components: Components to include in this sample.
+
+    Raises:
+        InvalidComponentError: If any annotation's ``target``
+            references a component name that does not exist
+            in the sample (orphaned), or if an annotation
+            with ``target=None`` is ambiguous because
+            multiple components of its ``applies_to`` type
+            exist in the sample.
     """
 
     def __init__(self, *components: Component) -> None:
         self._components: List[Component] = list(components)
+        self._validate_components()
+
+    def _validate_components(self) -> None:
+        """Validate annotations for orphans and ambiguity."""
+        named = {
+            c.name
+            for c in self._components
+            if c.name is not None
+        }
+        for comp in self._components:
+            if not hasattr(comp, 'applies_to'):
+                continue
+            if comp.target is not None:
+                if comp.target not in named:
+                    raise InvalidComponentError(
+                        f"{type(comp).__name__} has "
+                        f"target={comp.target!r} but no "
+                        f"component with that name exists "
+                        f"in the sample."
+                    )
+            else:
+                parent_type = comp.applies_to
+                count = sum(
+                    1
+                    for c in self._components
+                    if isinstance(c, parent_type)
+                    and not hasattr(c, 'applies_to')
+                )
+                if count > 1:
+                    raise InvalidComponentError(
+                        f"Ambiguous {type(comp).__name__}: "
+                        f"target=None but {count} "
+                        f"{parent_type.__name__} components "
+                        f"exist. Set target= to specify "
+                        f"which one this annotation belongs "
+                        f"to."
+                    )
 
     @property
     def components(self) -> Tuple[Component, ...]:
@@ -78,18 +127,18 @@ class Sample:
 
     def get_annotations(
         self, target: Optional[str] = None,
-    ) -> List[Annotation]:
+    ) -> List[Component]:
         """Return all annotation components.
 
         Args:
             target: If given, filter by ``annotation.target``.
 
         Returns:
-            List of matching ``Annotation`` instances.
+            List of matching annotation ``Component`` instances.
         """
         results = []
         for comp in self._components:
-            if isinstance(comp, Annotation):
+            if hasattr(comp, 'applies_to'):
                 if target is None or comp.target == target:
                     results.append(comp)
         return results
@@ -101,19 +150,41 @@ class Sample:
             c.is_materialized for c in self._components
         )
 
-    def materialize(self) -> "DataPackage":
-        """Materialize all components and return a
-        :class:`DataPackage`.
+    def materialize(self) -> "Sample":
+        """Materialize all components in-place and return
+        *self*.
 
-        Calls ``materialize()`` on every component in-place,
-        then returns a new ``DataPackage`` wrapping the same
-        items.
+        Calls ``materialize()`` on every component.  Heavy
+        components (e.g. ``Image``) load their data; light
+        components treat this as a no-op.  Returns *self* so
+        the call can be chained.
         """
         for comp in self._components:
             comp.materialize()
+        return self
 
-        from daugx.core.data.data_package import DataPackage
-        return DataPackage(*self._components)
+    def replacing(
+        self,
+        old: Component,
+        new: Component,
+    ) -> "Sample":
+        """Return a new Sample with *old* swapped for *new*
+        (identity match).
+
+        Args:
+            old: The component to replace.
+            new: The replacement component.
+
+        Returns:
+            A new Sample with the substitution applied.
+        """
+        return Sample(*(
+            new if c is old else c
+            for c in self._components
+        ))
+
+    def __iter__(self) -> Iterator[Component]:
+        return iter(self._components)
 
     def merge(self, other: Sample) -> Sample:
         """Return a new Sample combining components from

@@ -5,7 +5,7 @@ All actual data loading is deferred to materialization.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 from daugx.core.data.sample import Sample
 
@@ -36,6 +36,9 @@ class Dataset:
 
     def __bool__(self) -> bool:
         return True
+
+    def __iter__(self) -> Iterator[Sample]:
+        return iter(self._samples)
 
     def __getitem__(self, index: int) -> Sample:
         return self._samples[index]

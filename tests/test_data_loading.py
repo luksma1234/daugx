@@ -1,8 +1,8 @@
 """Tests for the data loading architecture.
 
 Covers: Component, Image, ImageCategory, ImageBoundingBox,
-ImagePolygon, ImageKeyPoint, Text, Constant, Annotation,
-Sample, DataPackage, and Dataset.
+ImagePolygon, ImageKeyPoint, Text, Constant,
+Sample, and Dataset.
 """
 import os
 import tempfile
@@ -11,7 +11,6 @@ import cv2
 import numpy as np
 import pytest
 
-from daugx.core.data.annotation import Annotation
 from daugx.core.data.component import Component, ComponentState
 from daugx.core.data.components.bounding_box import (
     ImageBoundingBox,
@@ -22,7 +21,6 @@ from daugx.core.data.components.keypoint import ImageKeyPoint
 from daugx.core.data.components.label import ImageCategory
 from daugx.core.data.components.polygon import ImagePolygon
 from daugx.core.data.components.text import Text
-from daugx.core.data.data_package import DataPackage
 from daugx.core.data.sample import Sample
 from daugx.core.dataset import Dataset
 
@@ -96,7 +94,7 @@ class TestImageCategory:
 
     def test_is_annotation(self):
         cat = ImageCategory(class_id=0)
-        assert isinstance(cat, Annotation)
+        assert hasattr(cat, 'applies_to')
 
 
 # -------------------------------------------------------------------
@@ -173,7 +171,7 @@ class TestImageBoundingBox:
 
     def test_is_annotation(self):
         bb = ImageBoundingBox(np.array([[0, 0], [1, 1]]))
-        assert isinstance(bb, Annotation)
+        assert hasattr(bb, 'applies_to')
 
 
 # -------------------------------------------------------------------
@@ -231,7 +229,7 @@ class TestImagePolygon:
 
     def test_is_annotation(self):
         pts = np.array([[0, 0], [1, 0], [1, 1]])
-        assert isinstance(ImagePolygon(pts), Annotation)
+        assert hasattr(ImagePolygon(pts), 'applies_to')
 
 
 # -------------------------------------------------------------------
@@ -275,9 +273,7 @@ class TestImageKeyPoint:
         assert kp.target == "body"
 
     def test_is_annotation(self):
-        assert isinstance(
-            ImageKeyPoint(x=0, y=0), Annotation,
-        )
+        assert hasattr(ImageKeyPoint(x=0, y=0), 'applies_to')
 
 
 # -------------------------------------------------------------------
@@ -383,11 +379,11 @@ class TestConstant:
         s = Sample(c)
         assert s.get(Constant) is c
 
-    def test_in_data_package(self):
+    def test_in_materialized_sample(self):
         c = Constant(value=123, name="img_id")
-        pkg = DataPackage(c)
-        assert pkg.get(Constant) is c
-        assert pkg.get(Constant).value == 123
+        s = Sample(c)
+        assert s.get(Constant) is c
+        assert s.get(Constant).value == 123
 
 
 # -------------------------------------------------------------------
@@ -435,13 +431,13 @@ class TestSample:
     def test_get_annotation_base(self):
         cat = ImageCategory(0)
         s = Sample(cat)
-        assert s.get(Annotation) is cat
+        assert s.get_annotations() == [cat]
 
     def test_get_all_annotations(self):
         bb = ImageBoundingBox(np.array([[0, 0], [5, 5]]))
         cat = ImageCategory(0)
         s = Sample(bb, cat)
-        assert s.get_all(Annotation) == [bb, cat]
+        assert s.get_annotations() == [bb, cat]
 
     def test_get_with_name(self, tmp_image_path):
         left = Image(path=tmp_image_path, name="left")
@@ -461,23 +457,23 @@ class TestSample:
         s = Sample(ImageCategory(0))
         assert s.is_materialized is True
 
-    def test_materialize_returns_data_package(
+    def test_materialize_returns_self(
         self, tmp_image_path,
     ):
         s = Sample(
             Image(path=tmp_image_path),
             ImageCategory(0, "cat"),
         )
-        pkg = s.materialize()
-        assert isinstance(pkg, DataPackage)
+        result = s.materialize()
+        assert result is s
 
     def test_materialize_loads_image(
         self, tmp_image_path,
     ):
         s = Sample(Image(path=tmp_image_path))
-        pkg = s.materialize()
+        s.materialize()
         assert isinstance(
-            pkg.get(Image).data, np.ndarray,
+            s.get(Image).data, np.ndarray,
         )
 
     def test_components_property(self, tmp_image_path):
@@ -494,6 +490,7 @@ class TestSample:
         cat = ImageCategory(0, target="cam")
         img = Image.from_array(
             np.zeros((10, 10, 3), dtype=np.uint8),
+            name="cam",
         )
         s = Sample(img, bb, cat)
         annots = s.get_annotations()
@@ -510,89 +507,24 @@ class TestSample:
             np.array([[0, 0], [5, 5]]),
             target="cam_b",
         )
-        s = Sample(bb_a, bb_b)
+        img_a = Image.from_array(
+            np.zeros((10, 10, 3), dtype=np.uint8),
+            name="cam_a",
+        )
+        img_b = Image.from_array(
+            np.zeros((10, 10, 3), dtype=np.uint8),
+            name="cam_b",
+        )
+        s = Sample(img_a, img_b, bb_a, bb_b)
         assert s.get_annotations(target="cam_a") == [bb_a]
         assert s.get_annotations(target="cam_b") == [bb_b]
 
 
 # -------------------------------------------------------------------
-# DataPackage
+# Sample.replacing
 # -------------------------------------------------------------------
 
-class TestDataPackage:
-    def test_construction(self):
-        img = Image.from_array(
-            np.zeros((10, 10, 3), dtype=np.uint8),
-        )
-        cat = ImageCategory(0)
-        pkg = DataPackage(img, cat)
-        assert len(pkg.components) == 2
-
-    def test_get_image(self):
-        img = Image.from_array(
-            np.zeros((10, 10, 3), dtype=np.uint8),
-        )
-        pkg = DataPackage(img)
-        assert pkg.get(Image) is img
-
-    def test_get_returns_none(self):
-        img = Image.from_array(
-            np.zeros((10, 10, 3), dtype=np.uint8),
-        )
-        pkg = DataPackage(img)
-        assert pkg.get(Text) is None
-
-    def test_get_with_name(self):
-        left = Image.from_array(
-            np.zeros((5, 5, 3), dtype=np.uint8),
-            name="left",
-        )
-        right = Image.from_array(
-            np.ones((5, 5, 3), dtype=np.uint8),
-            name="right",
-        )
-        pkg = DataPackage(left, right)
-        assert pkg.get(Image, name="right") is right
-
-    def test_get_all_annotations(self):
-        a1 = ImageCategory(0)
-        a2 = ImageCategory(1)
-        pkg = DataPackage(
-            Image.from_array(
-                np.zeros((5, 5, 3), dtype=np.uint8),
-            ),
-            a1,
-            a2,
-        )
-        assert pkg.get_all(Annotation) == [a1, a2]
-
-    def test_get_all_empty(self):
-        img = Image.from_array(
-            np.zeros((5, 5, 3), dtype=np.uint8),
-        )
-        pkg = DataPackage(img)
-        assert pkg.get_all(Text) == []
-
-    def test_components_property(self):
-        img = Image.from_array(
-            np.zeros((5, 5, 3), dtype=np.uint8),
-        )
-        cat = ImageCategory(0)
-        pkg = DataPackage(img, cat)
-        assert pkg.components == (img, cat)
-
-    def test_get_annotations_by_target(self):
-        bb = ImageBoundingBox(
-            np.array([[0, 0], [5, 5]]),
-            target="cam",
-        )
-        cat = ImageCategory(0, target="other")
-        pkg = DataPackage(bb, cat)
-        assert pkg.get_annotations(target="cam") == [bb]
-        assert pkg.get_annotations(target="other") == [cat]
-
-
-class TestDataPackageReplacing:
+class TestSampleReplacing:
     def test_replacing_returns_new_instance(self):
         img = Image.from_array(
             np.zeros((5, 5, 3), dtype=np.uint8),
@@ -601,11 +533,11 @@ class TestDataPackageReplacing:
             np.ones((5, 5, 3), dtype=np.uint8),
         )
         cat = ImageCategory(0)
-        pkg = DataPackage(img, cat)
-        pkg2 = pkg.replacing(img, new_img)
-        assert pkg2 is not pkg
-        assert pkg2.get(Image) is new_img
-        assert pkg2.get(ImageCategory) is cat
+        s = Sample(img, cat)
+        s2 = s.replacing(img, new_img)
+        assert s2 is not s
+        assert s2.get(Image) is new_img
+        assert s2.get(ImageCategory) is cat
 
     def test_replacing_does_not_mutate_original(self):
         img = Image.from_array(
@@ -614,9 +546,9 @@ class TestDataPackageReplacing:
         new_img = Image.from_array(
             np.ones((5, 5, 3), dtype=np.uint8),
         )
-        pkg = DataPackage(img)
-        pkg.replacing(img, new_img)
-        assert pkg.get(Image) is img
+        s = Sample(img)
+        s.replacing(img, new_img)
+        assert s.get(Image) is img
 
 
 # -------------------------------------------------------------------
@@ -828,7 +760,7 @@ class TestSampleModalities:
         cat_video = ImageCategory(0, "cat", name="video")
         cat_audio = ImageCategory(1, "speech", name="audio")
         s = Sample(cat_video, cat_audio)
-        result = s.get_all(Annotation, name="video")
+        result = s.get_all(ImageCategory, name="video")
         assert result == [cat_video]
 
     def test_merge_preserves_modality_names(
@@ -841,79 +773,8 @@ class TestSampleModalities:
         b = Sample(cat)
         merged = a.merge(b)
         assert merged.get_all(
-            Annotation, name="video",
+            ImageCategory, name="video",
         ) == [cat]
         assert merged.modalities() == {"video"}
 
 
-# -------------------------------------------------------------------
-# DataPackage.merge
-# -------------------------------------------------------------------
-
-class TestDataPackageMerge:
-    def test_merge_combines_components(self):
-        img = Image.from_array(
-            np.zeros((5, 5, 3), dtype=np.uint8),
-        )
-        cat = ImageCategory(0)
-        a = DataPackage(img)
-        b = DataPackage(cat)
-        merged = a.merge(b)
-        assert img in merged.components
-        assert cat in merged.components
-
-    def test_merge_returns_new_instance(self):
-        a = DataPackage(ImageCategory(0))
-        b = DataPackage(ImageCategory(1))
-        merged = a.merge(b)
-        assert merged is not a
-        assert merged is not b
-
-    def test_merge_does_not_mutate_originals(self):
-        c0 = ImageCategory(0)
-        c1 = ImageCategory(1)
-        a = DataPackage(c0)
-        b = DataPackage(c1)
-        a.merge(b)
-        assert a.components == (c0,)
-        assert b.components == (c1,)
-
-    def test_merge_preserves_order(self):
-        c0 = ImageCategory(0)
-        c1 = ImageCategory(1)
-        merged = DataPackage(c0).merge(DataPackage(c1))
-        assert merged.components == (c0, c1)
-
-    def test_merge_empty_data_package(self):
-        cat = ImageCategory(0)
-        a = DataPackage(cat)
-        b = DataPackage()
-        merged = a.merge(b)
-        assert merged.components == (cat,)
-
-    def test_add_operator(self):
-        c0 = ImageCategory(0)
-        c1 = ImageCategory(1)
-        merged = DataPackage(c0) + DataPackage(c1)
-        assert merged.components == (c0, c1)
-
-
-# -------------------------------------------------------------------
-# DataPackage.modalities
-# -------------------------------------------------------------------
-
-class TestDataPackageModalities:
-    def test_modalities_returns_names(self):
-        img = Image.from_array(
-            np.zeros((5, 5, 3), dtype=np.uint8), name="video",
-        )
-        cat = ImageCategory(0, name="audio")
-        pkg = DataPackage(img, cat)
-        assert pkg.modalities() == {"video", "audio"}
-
-    def test_modalities_includes_none(self):
-        img = Image.from_array(
-            np.zeros((5, 5, 3), dtype=np.uint8), name="video",
-        )
-        pkg = DataPackage(img, ImageCategory(0))
-        assert pkg.modalities() == {"video", None}
