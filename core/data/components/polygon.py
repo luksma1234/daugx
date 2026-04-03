@@ -15,7 +15,9 @@ class ImagePolygon(Component):
             components.
 
     Args:
-        points: Array of shape (n, 2) with n >= 3.
+        points: Array of shape (n, 2) with n >= 3, or a flat
+            array/list of shape (2n,) which is reshaped
+            automatically.
         class_id: Integer class identifier.
         class_name: Human-readable class name.
         target: ``name`` of the parent ``Image`` component
@@ -23,7 +25,8 @@ class ImagePolygon(Component):
         name: Optional disambiguation name.
 
     Raises:
-        ValueError: If fewer than 3 points or wrong shape.
+        ValueError: If fewer than 3 points, odd flat length,
+            or wrong shape.
     """
 
     applies_to = Image
@@ -40,9 +43,16 @@ class ImagePolygon(Component):
         self._component_name = name
         self._target = target
         pts = np.asarray(points, dtype=float)
+        if pts.ndim == 1:
+            if len(pts) % 2 != 0:
+                raise ValueError(
+                    "Flat input must have even length, "
+                    f"got {len(pts)}"
+                )
+            pts = pts.reshape(-1, 2)
         if pts.ndim != 2 or pts.shape[1] != 2:
             raise ValueError(
-                "Expected shape (n, 2), "
+                "Expected shape (n, 2) or flat (2n,), "
                 f"got {pts.shape}"
             )
         if pts.shape[0] < 3:
