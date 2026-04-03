@@ -1,16 +1,20 @@
 """Data components for the daugx data loading system."""
 from daugx.core.data.components.bounding_box import (
-    BoundingBox,
+    ImageBoundingBox,
 )
+from daugx.core.data.components.constant import Constant
 from daugx.core.data.components.image import Image
-from daugx.core.data.components.keypoint import KeyPoint
-from daugx.core.data.components.label import Label
-from daugx.core.data.components.polygon import Polygon
+from daugx.core.data.components.keypoint import ImageKeyPoint
+from daugx.core.data.components.label import ImageCategory
+from daugx.core.data.components.polygon import ImagePolygon
+from daugx.core.data.components.text import Text
 
 __all__ = [
-    "BoundingBox",
+    "Constant",
     "Image",
-    "KeyPoint",
-    "Label",
-    "Polygon",
+    "ImageBoundingBox",
+    "ImageCategory",
+    "ImageKeyPoint",
+    "ImagePolygon",
+    "Text",
 ]

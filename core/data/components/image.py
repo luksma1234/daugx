@@ -22,11 +22,13 @@ class Image(Component):
         self,
         path: str,
         format_hint: Optional[str] = None,
+        name: Optional[str] = None,
     ) -> None:
         self._path = path
         self._format_hint = format_hint
         self._data: Optional[np.ndarray] = None
         self._state = ComponentState.PRELOADED
+        self._component_name = name
 
     @property
     def path(self) -> str:
@@ -57,6 +59,31 @@ class Image(Component):
     @property
     def is_materialized(self) -> bool:
         return self._state == ComponentState.MATERIALIZED
+
+    @classmethod
+    def from_array(
+        cls,
+        data: np.ndarray,
+        format_hint: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> "Image":
+        """Create a materialized Image from pixel data.
+
+        Args:
+            data: Pixel array (H, W, C).
+            format_hint: Optional format string.
+            name: Optional disambiguation name.
+
+        Returns:
+            A new Image in ``MATERIALIZED`` state.
+        """
+        img = cls.__new__(cls)
+        img._path = ""
+        img._format_hint = format_hint
+        img._data = data
+        img._state = ComponentState.MATERIALIZED
+        img._component_name = name
+        return img
 
     def materialize(self) -> None:
         """Read image from disk via ``cv2.imread``.

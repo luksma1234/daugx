@@ -1,7 +1,8 @@
 """Tests for the data loading architecture.
 
-Covers: Component, Image, Label, BoundingBox, Polygon, KeyPoint,
-Schema, Sample, DataPackage, and reworked Dataset.
+Covers: Component, Image, ImageCategory, ImageBoundingBox,
+ImagePolygon, ImageKeyPoint, Text, Constant,
+Sample, and Dataset.
 """
 import os
 import tempfile
@@ -11,16 +12,17 @@ import numpy as np
 import pytest
 
 from daugx.core.data.component import Component, ComponentState
-from daugx.core.data.components.label import Label
-from daugx.core.data.components.bounding_box import BoundingBox
-from daugx.core.data.components.polygon import Polygon
-from daugx.core.data.components.keypoint import KeyPoint
+from daugx.core.data.components.bounding_box import (
+    ImageBoundingBox,
+)
+from daugx.core.data.components.constant import Constant
 from daugx.core.data.components.image import Image
-from daugx.core.data.schema import Schema
+from daugx.core.data.components.keypoint import ImageKeyPoint
+from daugx.core.data.components.label import ImageCategory
+from daugx.core.data.components.polygon import ImagePolygon
+from daugx.core.data.components.text import Text
 from daugx.core.data.sample import Sample
-from daugx.core.data.data_package import DataPackage
 from daugx.core.dataset import Dataset
-from daugx.errors import SchemaValidationError
 
 
 # -------------------------------------------------------------------
@@ -51,45 +53,65 @@ class TestComponentABC:
 
 
 # -------------------------------------------------------------------
-# Label
+# ImageCategory (was Label)
 # -------------------------------------------------------------------
 
-class TestLabel:
+class TestImageCategory:
     def test_construction(self):
-        lbl = Label(class_id=3, name="dog")
-        assert lbl.class_id == 3
-        assert lbl.name == "dog"
+        cat = ImageCategory(class_id=3, class_name="dog")
+        assert cat.class_id == 3
+        assert cat.class_name == "dog"
 
-    def test_name_optional(self):
-        lbl = Label(class_id=0)
-        assert lbl.name is None
+    def test_class_name_optional(self):
+        cat = ImageCategory(class_id=0)
+        assert cat.class_name is None
+
+    def test_component_name_default_none(self):
+        cat = ImageCategory(class_id=0)
+        assert cat.name is None
+
+    def test_component_name_set(self):
+        cat = ImageCategory(class_id=0, name="primary")
+        assert cat.name == "primary"
+
+    def test_target_default_none(self):
+        cat = ImageCategory(class_id=0)
+        assert cat.target is None
+
+    def test_target_set(self):
+        cat = ImageCategory(class_id=0, target="cam")
+        assert cat.target == "cam"
 
     def test_always_materialized(self):
-        lbl = Label(class_id=1)
-        assert lbl.state == ComponentState.MATERIALIZED
-        assert lbl.is_materialized is True
+        cat = ImageCategory(class_id=1)
+        assert cat.state == ComponentState.MATERIALIZED
+        assert cat.is_materialized is True
 
     def test_materialize_noop(self):
-        lbl = Label(class_id=1)
-        lbl.materialize()
-        assert lbl.is_materialized is True
+        cat = ImageCategory(class_id=1)
+        cat.materialize()
+        assert cat.is_materialized is True
+
+    def test_is_annotation(self):
+        cat = ImageCategory(class_id=0)
+        assert hasattr(cat, 'applies_to')
 
 
 # -------------------------------------------------------------------
-# BoundingBox
+# ImageBoundingBox (was BoundingBox)
 # -------------------------------------------------------------------
 
-class TestBoundingBox:
+class TestImageBoundingBox:
     def test_construction_2x2(self):
         pts = np.array([[10, 20], [100, 200]])
-        bb = BoundingBox(points=pts)
+        bb = ImageBoundingBox(points=pts)
         assert bb.x_min == 10
         assert bb.y_min == 20
         assert bb.x_max == 100
         assert bb.y_max == 200
 
     def test_properties(self):
-        bb = BoundingBox(
+        bb = ImageBoundingBox(
             points=np.array([[0, 0], [10, 20]]),
         )
         assert bb.width == 10
@@ -99,8 +121,22 @@ class TestBoundingBox:
             bb.center, [5.0, 10.0],
         )
 
+    def test_class_id_and_name(self):
+        bb = ImageBoundingBox(
+            np.array([[0, 0], [10, 10]]),
+            class_id=2,
+            class_name="car",
+        )
+        assert bb.class_id == 2
+        assert bb.class_name == "car"
+
+    def test_class_id_optional(self):
+        bb = ImageBoundingBox(np.array([[0, 0], [1, 1]]))
+        assert bb.class_id is None
+        assert bb.class_name is None
+
     def test_always_materialized(self):
-        bb = BoundingBox(
+        bb = ImageBoundingBox(
             points=np.array([[0, 0], [1, 1]]),
         )
         assert bb.state == ComponentState.MATERIALIZED
@@ -108,75 +144,136 @@ class TestBoundingBox:
 
     def test_rejects_wrong_shape(self):
         with pytest.raises(ValueError):
-            BoundingBox(points=np.array([1, 2, 3]))
+            ImageBoundingBox(points=np.array([1, 2, 3]))
 
     def test_points_shape(self):
-        bb = BoundingBox(
+        bb = ImageBoundingBox(
             points=np.array([[5, 10], [50, 100]]),
         )
         assert bb.points.shape == (2, 2)
 
+    def test_component_name(self):
+        bb = ImageBoundingBox(
+            np.array([[0, 0], [1, 1]]), name="main",
+        )
+        assert bb.name == "main"
+
+    def test_component_name_default_none(self):
+        bb = ImageBoundingBox(np.array([[0, 0], [1, 1]]))
+        assert bb.name is None
+
+    def test_target(self):
+        bb = ImageBoundingBox(
+            np.array([[0, 0], [1, 1]]),
+            target="left_cam",
+        )
+        assert bb.target == "left_cam"
+
+    def test_is_annotation(self):
+        bb = ImageBoundingBox(np.array([[0, 0], [1, 1]]))
+        assert hasattr(bb, 'applies_to')
+
 
 # -------------------------------------------------------------------
-# Polygon
+# ImagePolygon (was Polygon)
 # -------------------------------------------------------------------
 
-class TestPolygon:
+class TestImagePolygon:
     def test_construction(self):
         pts = np.array([[0, 0], [10, 0], [10, 10]])
-        poly = Polygon(points=pts)
+        poly = ImagePolygon(points=pts)
         assert poly.points.shape == (3, 2)
 
     def test_area_triangle(self):
         pts = np.array(
             [[0, 0], [10, 0], [0, 10]], dtype=float,
         )
-        poly = Polygon(points=pts)
+        poly = ImagePolygon(points=pts)
         assert poly.area == pytest.approx(50.0)
 
     def test_center(self):
         pts = np.array(
             [[0, 0], [6, 0], [6, 6], [0, 6]], dtype=float,
         )
-        poly = Polygon(points=pts)
+        poly = ImagePolygon(points=pts)
         np.testing.assert_array_almost_equal(
             poly.center, [3.0, 3.0],
         )
 
+    def test_class_id_and_name(self):
+        pts = np.array([[0, 0], [5, 0], [5, 5]])
+        poly = ImagePolygon(pts, class_id=1, class_name="face")
+        assert poly.class_id == 1
+        assert poly.class_name == "face"
+
     def test_always_materialized(self):
         pts = np.array([[0, 0], [1, 0], [1, 1]])
-        poly = Polygon(points=pts)
+        poly = ImagePolygon(points=pts)
         assert poly.is_materialized is True
 
     def test_rejects_fewer_than_3_points(self):
         with pytest.raises(ValueError):
-            Polygon(points=np.array([[0, 0], [1, 1]]))
+            ImagePolygon(
+                points=np.array([[0, 0], [1, 1]]),
+            )
+
+    def test_component_name(self):
+        pts = np.array([[0, 0], [1, 0], [1, 1]])
+        poly = ImagePolygon(pts, name="outline")
+        assert poly.name == "outline"
+
+    def test_target(self):
+        pts = np.array([[0, 0], [1, 0], [1, 1]])
+        poly = ImagePolygon(pts, target="cam")
+        assert poly.target == "cam"
+
+    def test_is_annotation(self):
+        pts = np.array([[0, 0], [1, 0], [1, 1]])
+        assert hasattr(ImagePolygon(pts), 'applies_to')
 
 
 # -------------------------------------------------------------------
-# KeyPoint
+# ImageKeyPoint (was KeyPoint)
 # -------------------------------------------------------------------
 
-class TestKeyPoint:
+class TestImageKeyPoint:
     def test_construction(self):
-        kp = KeyPoint(x=5.0, y=10.0)
+        kp = ImageKeyPoint(x=5.0, y=10.0)
         assert kp.x == 5.0
         assert kp.y == 10.0
         assert kp.visibility is None
 
     def test_visibility(self):
-        kp = KeyPoint(x=1.0, y=2.0, visibility=2)
+        kp = ImageKeyPoint(x=1.0, y=2.0, visibility=2)
         assert kp.visibility == 2
 
     def test_point_array(self):
-        kp = KeyPoint(x=3.0, y=7.0)
+        kp = ImageKeyPoint(x=3.0, y=7.0)
         np.testing.assert_array_equal(
             kp.point, [3.0, 7.0],
         )
 
+    def test_class_id_and_name(self):
+        kp = ImageKeyPoint(
+            x=0, y=0, class_id=5, class_name="nose",
+        )
+        assert kp.class_id == 5
+        assert kp.class_name == "nose"
+
     def test_always_materialized(self):
-        kp = KeyPoint(x=0.0, y=0.0)
+        kp = ImageKeyPoint(x=0.0, y=0.0)
         assert kp.is_materialized is True
+
+    def test_component_name(self):
+        kp = ImageKeyPoint(x=0, y=0, name="nose")
+        assert kp.name == "nose"
+
+    def test_target(self):
+        kp = ImageKeyPoint(x=0, y=0, target="body")
+        assert kp.target == "body"
+
+    def test_is_annotation(self):
+        assert hasattr(ImageKeyPoint(x=0, y=0), 'applies_to')
 
 
 # -------------------------------------------------------------------
@@ -227,107 +324,66 @@ class TestImage:
         with pytest.raises(FileNotFoundError):
             img.materialize()
 
+    def test_component_name(self, tmp_image_path):
+        img = Image(path=tmp_image_path, name="left")
+        assert img.name == "left"
+
+    def test_component_name_default_none(
+        self, tmp_image_path,
+    ):
+        img = Image(path=tmp_image_path)
+        assert img.name is None
+
 
 # -------------------------------------------------------------------
-# Schema
+# Constant
 # -------------------------------------------------------------------
 
-class TestSchema:
-    def test_singular_key(self):
-        s = Schema({"image": Image})
-        assert "image" in s.singular_keys
-        assert "image" not in s.plural_keys
+class TestConstant:
+    def test_construction_int(self):
+        c = Constant(value=42)
+        assert c.value == 42
 
-    def test_plural_key(self):
-        s = Schema({"objects": [BoundingBox, Label]})
-        assert "objects" in s.plural_keys
-        assert "objects" not in s.singular_keys
+    def test_construction_str(self):
+        c = Constant(value="hello")
+        assert c.value == "hello"
 
-    def test_keys(self):
-        s = Schema({
-            "image": Image,
-            "objects": [BoundingBox, Label],
-        })
-        assert set(s.keys) == {"image", "objects"}
+    def test_construction_dict(self):
+        c = Constant(value={"key": "val"})
+        assert c.value == {"key": "val"}
 
-    def test_definition_property(self):
-        defn = {"image": Image}
-        s = Schema(defn)
-        assert s.definition == defn
+    def test_construction_list(self):
+        c = Constant(value=[1, 2, 3])
+        assert c.value == [1, 2, 3]
 
-    def test_validate_valid_sample(self, tmp_image_path):
-        s = Schema({
-            "image": Image,
-            "objects": [BoundingBox, Label],
-        })
-        sample = Sample(
-            image=Image(path=tmp_image_path),
-            objects=[
-                (
-                    BoundingBox(
-                        np.array([[0, 0], [10, 10]]),
-                    ),
-                    Label(0, "cat"),
-                ),
-            ],
-        )
-        s.validate(sample)  # should not raise
+    def test_always_materialized(self):
+        c = Constant(value=0)
+        assert c.state == ComponentState.MATERIALIZED
+        assert c.is_materialized is True
 
-    def test_validate_missing_key(self, tmp_image_path):
-        s = Schema({
-            "image": Image,
-            "objects": [BoundingBox, Label],
-        })
-        sample = Sample(
-            image=Image(path=tmp_image_path),
-        )
-        with pytest.raises(SchemaValidationError):
-            s.validate(sample)
+    def test_materialize_noop(self):
+        c = Constant(value=99)
+        c.materialize()
+        assert c.value == 99
 
-    def test_validate_wrong_singular_type(
-        self, tmp_image_path,
-    ):
-        s = Schema({"image": Image})
-        sample = Sample(image=Label(0))
-        with pytest.raises(SchemaValidationError):
-            s.validate(sample)
+    def test_component_name(self):
+        c = Constant(value=1, name="image_id")
+        assert c.name == "image_id"
 
-    def test_validate_wrong_tuple_type(
-        self, tmp_image_path,
-    ):
-        s = Schema({"objects": [BoundingBox, Label]})
-        sample = Sample(
-            objects=[
-                (Label(0), Label(1)),
-            ],
-        )
-        with pytest.raises(SchemaValidationError):
-            s.validate(sample)
+    def test_component_name_default_none(self):
+        c = Constant(value=1)
+        assert c.name is None
 
-    def test_validate_empty_plural_list_ok(self):
-        s = Schema({"objects": [BoundingBox, Label]})
-        sample = Sample(objects=[])
-        s.validate(sample)  # empty list is valid
+    def test_in_sample(self):
+        c = Constant(value="train", name="split")
+        s = Sample(c)
+        assert s.get(Constant) is c
 
-    def test_validate_extra_keys_ok(
-        self, tmp_image_path,
-    ):
-        s = Schema({"image": Image})
-        sample = Sample(
-            image=Image(path=tmp_image_path),
-            extra=Label(0),
-        )
-        s.validate(sample)  # extra keys allowed
-
-    def test_validate_plural_not_list(self):
-        s = Schema({"objects": [BoundingBox]})
-        sample = Sample(
-            objects=BoundingBox(
-                np.array([[0, 0], [1, 1]]),
-            ),
-        )
-        with pytest.raises(SchemaValidationError):
-            s.validate(sample)
+    def test_in_materialized_sample(self):
+        c = Constant(value=123, name="img_id")
+        s = Sample(c)
+        assert s.get(Constant) is c
+        assert s.get(Constant).value == 123
 
 
 # -------------------------------------------------------------------
@@ -335,154 +391,390 @@ class TestSchema:
 # -------------------------------------------------------------------
 
 class TestSample:
-    def test_getitem(self, tmp_image_path):
+    def test_construction_bare_component(
+        self, tmp_image_path,
+    ):
+        s = Sample(Image(path=tmp_image_path))
+        assert len(s.components) == 1
+
+    def test_construction_with_flat_annotations(
+        self, tmp_image_path,
+    ):
+        s = Sample(
+            Image(path=tmp_image_path),
+            ImageBoundingBox(
+                np.array([[0, 0], [10, 10]]),
+                class_id=0,
+                class_name="cat",
+            ),
+        )
+        assert len(s.components) == 2
+
+    def test_construction_mixed(self, tmp_image_path):
+        s = Sample(
+            Image(path=tmp_image_path),
+            Text("hello"),
+            ImageCategory(0),
+        )
+        assert len(s.components) == 3
+
+    def test_get_by_type(self, tmp_image_path):
         img = Image(path=tmp_image_path)
-        sample = Sample(image=img)
-        assert sample["image"] is img
+        s = Sample(img, Text("hi"))
+        assert s.get(Image) is img
 
-    def test_contains(self, tmp_image_path):
-        sample = Sample(
-            image=Image(path=tmp_image_path),
-        )
-        assert "image" in sample
-        assert "missing" not in sample
+    def test_get_annotation_component(self):
+        cat = ImageCategory(0)
+        s = Sample(cat)
+        assert s.get(ImageCategory) is cat
 
-    def test_keys(self, tmp_image_path):
-        sample = Sample(
-            image=Image(path=tmp_image_path),
-            label=Label(0),
-        )
-        assert set(sample.keys) == {"image", "label"}
+    def test_get_annotation_base(self):
+        cat = ImageCategory(0)
+        s = Sample(cat)
+        assert s.get_annotations() == [cat]
 
-    def test_is_materialized_false_when_preloaded(
+    def test_get_all_annotations(self):
+        bb = ImageBoundingBox(np.array([[0, 0], [5, 5]]))
+        cat = ImageCategory(0)
+        s = Sample(bb, cat)
+        assert s.get_annotations() == [bb, cat]
+
+    def test_get_with_name(self, tmp_image_path):
+        left = Image(path=tmp_image_path, name="left")
+        right = Image(path=tmp_image_path, name="right")
+        s = Sample(left, right)
+        assert s.get(Image, name="right") is right
+
+    def test_get_returns_none(self, tmp_image_path):
+        s = Sample(Image(path=tmp_image_path))
+        assert s.get(Text) is None
+
+    def test_is_materialized_false(self, tmp_image_path):
+        s = Sample(Image(path=tmp_image_path))
+        assert s.is_materialized is False
+
+    def test_is_materialized_true(self):
+        s = Sample(ImageCategory(0))
+        assert s.is_materialized is True
+
+    def test_materialize_returns_self(
         self, tmp_image_path,
     ):
-        sample = Sample(
-            image=Image(path=tmp_image_path),
+        s = Sample(
+            Image(path=tmp_image_path),
+            ImageCategory(0, "cat"),
         )
-        assert sample.is_materialized is False
-
-    def test_is_materialized_true_lightweight_only(self):
-        sample = Sample(label=Label(0))
-        assert sample.is_materialized is True
-
-    def test_materialize_returns_data_package(
-        self, tmp_image_path,
-    ):
-        sample = Sample(
-            image=Image(path=tmp_image_path),
-            label=Label(0, "cat"),
-        )
-        pkg = sample.materialize()
-        assert isinstance(pkg, DataPackage)
+        result = s.materialize()
+        assert result is s
 
     def test_materialize_loads_image(
         self, tmp_image_path,
     ):
-        sample = Sample(
-            image=Image(path=tmp_image_path),
+        s = Sample(Image(path=tmp_image_path))
+        s.materialize()
+        assert isinstance(
+            s.get(Image).data, np.ndarray,
         )
-        pkg = sample.materialize()
-        assert isinstance(pkg["image"].data, np.ndarray)
 
-    def test_materialize_with_plural(
-        self, tmp_image_path,
-    ):
-        sample = Sample(
-            image=Image(path=tmp_image_path),
-            objects=[
-                (
-                    BoundingBox(
-                        np.array([[0, 0], [5, 5]]),
-                    ),
-                    Label(1, "dog"),
-                ),
-            ],
+    def test_components_property(self, tmp_image_path):
+        img = Image(path=tmp_image_path)
+        cat = ImageCategory(0)
+        s = Sample(img, cat)
+        assert s.components == (img, cat)
+
+    def test_get_annotations_all(self):
+        bb = ImageBoundingBox(
+            np.array([[0, 0], [5, 5]]),
+            target="cam",
         )
-        pkg = sample.materialize()
-        assert len(pkg["objects"]) == 1
-        assert isinstance(pkg["objects"][0][0], BoundingBox)
+        cat = ImageCategory(0, target="cam")
+        img = Image.from_array(
+            np.zeros((10, 10, 3), dtype=np.uint8),
+            name="cam",
+        )
+        s = Sample(img, bb, cat)
+        annots = s.get_annotations()
+        assert bb in annots
+        assert cat in annots
+        assert img not in annots
+
+    def test_get_annotations_by_target(self):
+        bb_a = ImageBoundingBox(
+            np.array([[0, 0], [5, 5]]),
+            target="cam_a",
+        )
+        bb_b = ImageBoundingBox(
+            np.array([[0, 0], [5, 5]]),
+            target="cam_b",
+        )
+        img_a = Image.from_array(
+            np.zeros((10, 10, 3), dtype=np.uint8),
+            name="cam_a",
+        )
+        img_b = Image.from_array(
+            np.zeros((10, 10, 3), dtype=np.uint8),
+            name="cam_b",
+        )
+        s = Sample(img_a, img_b, bb_a, bb_b)
+        assert s.get_annotations(target="cam_a") == [bb_a]
+        assert s.get_annotations(target="cam_b") == [bb_b]
 
 
 # -------------------------------------------------------------------
-# DataPackage
+# Sample.replacing
 # -------------------------------------------------------------------
 
-class TestDataPackage:
-    def test_getitem(self):
-        pkg = DataPackage({"label": Label(0)})
-        assert isinstance(pkg["label"], Label)
+class TestSampleReplacing:
+    def test_replacing_returns_new_instance(self):
+        img = Image.from_array(
+            np.zeros((5, 5, 3), dtype=np.uint8),
+        )
+        new_img = Image.from_array(
+            np.ones((5, 5, 3), dtype=np.uint8),
+        )
+        cat = ImageCategory(0)
+        s = Sample(img, cat)
+        s2 = s.replacing(img, new_img)
+        assert s2 is not s
+        assert s2.get(Image) is new_img
+        assert s2.get(ImageCategory) is cat
 
-    def test_contains(self):
-        pkg = DataPackage({"label": Label(0)})
-        assert "label" in pkg
-        assert "missing" not in pkg
-
-    def test_keys(self):
-        pkg = DataPackage({
-            "a": Label(0), "b": Label(1),
-        })
-        assert set(pkg.keys) == {"a", "b"}
-
-    def test_get_default(self):
-        pkg = DataPackage({})
-        assert pkg.get("missing", 42) == 42
+    def test_replacing_does_not_mutate_original(self):
+        img = Image.from_array(
+            np.zeros((5, 5, 3), dtype=np.uint8),
+        )
+        new_img = Image.from_array(
+            np.ones((5, 5, 3), dtype=np.uint8),
+        )
+        s = Sample(img)
+        s.replacing(img, new_img)
+        assert s.get(Image) is img
 
 
 # -------------------------------------------------------------------
-# Dataset (reworked)
+# Dataset
 # -------------------------------------------------------------------
 
 class TestDataset:
     def test_construction(self, tmp_image_path):
-        schema = Schema({"image": Image})
         samples = [
-            Sample(image=Image(path=tmp_image_path)),
+            Sample(Image(path=tmp_image_path)),
         ]
-        ds = Dataset(
-            schema=schema, samples=samples, name="Test",
-        )
+        ds = Dataset(samples=samples, name="Test")
         assert ds.name == "Test"
         assert len(ds) == 1
 
     def test_getitem(self, tmp_image_path):
-        schema = Schema({"image": Image})
-        s = Sample(image=Image(path=tmp_image_path))
-        ds = Dataset(schema=schema, samples=[s])
+        s = Sample(Image(path=tmp_image_path))
+        ds = Dataset(samples=[s])
         assert ds[0] is s
 
-    def test_schema_property(self):
-        schema = Schema({"label": Label})
-        ds = Dataset(
-            schema=schema,
-            samples=[Sample(label=Label(0))],
-        )
-        assert ds.schema is schema
-
     def test_default_name(self):
-        schema = Schema({"label": Label})
-        ds = Dataset(
-            schema=schema,
-            samples=[Sample(label=Label(0))],
-        )
+        ds = Dataset(samples=[Sample(ImageCategory(0))])
         assert ds.name == "Dataset"
 
-    def test_validation_on_construction(
+    def test_empty_samples(self):
+        ds = Dataset(samples=[])
+        assert len(ds) == 0
+
+
+# -------------------------------------------------------------------
+# Image.from_array
+# -------------------------------------------------------------------
+
+class TestImageFromArray:
+    def test_creates_materialized_image(self):
+        pixels = np.zeros((10, 10, 3), dtype=np.uint8)
+        img = Image.from_array(pixels)
+        assert img.is_materialized
+        assert img.state == ComponentState.MATERIALIZED
+
+    def test_data_matches_input(self):
+        pixels = np.ones((5, 8, 3), dtype=np.uint8) * 42
+        img = Image.from_array(pixels)
+        assert np.array_equal(img.data, pixels)
+
+    def test_path_is_empty_string(self):
+        img = Image.from_array(np.zeros((2, 2, 3)))
+        assert img.path == ""
+
+    def test_format_hint(self):
+        img = Image.from_array(
+            np.zeros((2, 2, 3)), format_hint="png",
+        )
+        assert img.format_hint == "png"
+
+    def test_materialize_is_noop(self):
+        pixels = np.zeros((3, 3, 3), dtype=np.uint8)
+        img = Image.from_array(pixels)
+        img.materialize()
+        assert np.array_equal(img.data, pixels)
+
+    def test_name(self):
+        img = Image.from_array(
+            np.zeros((2, 2, 3)), name="test",
+        )
+        assert img.name == "test"
+
+
+# -------------------------------------------------------------------
+# Text component
+# -------------------------------------------------------------------
+
+class TestTextComponent:
+    def test_construction(self):
+        t = Text("hello world")
+        assert t.text == "hello world"
+
+    def test_default_language(self):
+        t = Text("hello")
+        assert t.language == "en"
+
+    def test_custom_language(self):
+        t = Text("bonjour", language="fr")
+        assert t.language == "fr"
+
+    def test_default_metadata(self):
+        t = Text("hello")
+        assert t.metadata == {}
+
+    def test_custom_metadata(self):
+        t = Text("hello", metadata={"src": "wiki"})
+        assert t.metadata == {"src": "wiki"}
+
+    def test_metadata_returns_copy(self):
+        meta = {"key": "val"}
+        t = Text("hello", metadata=meta)
+        t.metadata["key"] = "changed"
+        assert t.metadata["key"] == "val"
+
+    def test_words(self):
+        t = Text("the quick brown fox")
+        assert t.words == ["the", "quick", "brown", "fox"]
+
+    def test_words_empty(self):
+        t = Text("")
+        assert t.words == []
+
+    def test_always_materialized(self):
+        t = Text("hello")
+        assert t.is_materialized is True
+        assert t.state == ComponentState.MATERIALIZED
+
+    def test_materialize_is_noop(self):
+        t = Text("hello")
+        t.materialize()
+        assert t.text == "hello"
+
+    def test_component_name(self):
+        t = Text("hello", name="source")
+        assert t.name == "source"
+
+
+# -------------------------------------------------------------------
+# Sample.merge
+# -------------------------------------------------------------------
+
+class TestSampleMerge:
+    def test_merge_combines_components(
         self, tmp_image_path,
     ):
-        schema = Schema({
-            "image": Image,
-            "label": Label,
-        })
-        bad_sample = Sample(
-            image=Image(path=tmp_image_path),
-        )
-        with pytest.raises(SchemaValidationError):
-            Dataset(
-                schema=schema, samples=[bad_sample],
-            )
+        img = Image(path=tmp_image_path)
+        cat = ImageCategory(0)
+        a = Sample(img)
+        b = Sample(cat)
+        merged = a.merge(b)
+        assert img in merged.components
+        assert cat in merged.components
 
-    def test_empty_samples(self):
-        schema = Schema({"image": Image})
-        ds = Dataset(schema=schema, samples=[])
-        assert len(ds) == 0
+    def test_merge_returns_new_instance(
+        self, tmp_image_path,
+    ):
+        a = Sample(Image(path=tmp_image_path))
+        b = Sample(ImageCategory(0))
+        merged = a.merge(b)
+        assert merged is not a
+        assert merged is not b
+
+    def test_merge_does_not_mutate_originals(
+        self, tmp_image_path,
+    ):
+        img = Image(path=tmp_image_path)
+        cat = ImageCategory(0)
+        a = Sample(img)
+        b = Sample(cat)
+        a.merge(b)
+        assert a.components == (img,)
+        assert b.components == (cat,)
+
+    def test_merge_preserves_order(
+        self, tmp_image_path,
+    ):
+        img = Image(path=tmp_image_path)
+        cat = ImageCategory(0)
+        a = Sample(img)
+        b = Sample(cat)
+        merged = a.merge(b)
+        assert merged.components == (img, cat)
+
+    def test_merge_empty_sample(
+        self, tmp_image_path,
+    ):
+        img = Image(path=tmp_image_path)
+        a = Sample(img)
+        b = Sample()
+        merged = a.merge(b)
+        assert merged.components == (img,)
+
+    def test_add_operator(self, tmp_image_path):
+        img = Image(path=tmp_image_path)
+        cat = ImageCategory(0)
+        merged = Sample(img) + Sample(cat)
+        assert merged.components == (img, cat)
+
+
+# -------------------------------------------------------------------
+# Sample.modalities
+# -------------------------------------------------------------------
+
+class TestSampleModalities:
+    def test_modalities_returns_names(
+        self, tmp_image_path,
+    ):
+        s = Sample(
+            Image(path=tmp_image_path, name="video"),
+            Text("clip.wav", name="audio"),
+        )
+        assert s.modalities() == {"video", "audio"}
+
+    def test_modalities_includes_none(
+        self, tmp_image_path,
+    ):
+        s = Sample(
+            Image(path=tmp_image_path, name="video"),
+            ImageCategory(0),
+        )
+        assert s.modalities() == {"video", None}
+
+    def test_get_annotation_by_name(self):
+        cat_video = ImageCategory(0, "cat", name="video")
+        cat_audio = ImageCategory(1, "speech", name="audio")
+        s = Sample(cat_video, cat_audio)
+        result = s.get_all(ImageCategory, name="video")
+        assert result == [cat_video]
+
+    def test_merge_preserves_modality_names(
+        self, tmp_image_path,
+    ):
+        cat = ImageCategory(0, name="video")
+        a = Sample(
+            Image(path=tmp_image_path, name="video"),
+        )
+        b = Sample(cat)
+        merged = a.merge(b)
+        assert merged.get_all(
+            ImageCategory, name="video",
+        ) == [cat]
+        assert merged.modalities() == {"video"}
+
+

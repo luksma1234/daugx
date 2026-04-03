@@ -1,13 +1,14 @@
 """Base component class and lifecycle enum."""
 from abc import ABC, abstractmethod
-from enum import Enum, auto
+from enum import Enum
+from typing import Optional
 
 
 class ComponentState(Enum):
     """Lifecycle state of a component."""
 
-    PRELOADED = auto()
-    MATERIALIZED = auto()
+    PRELOADED = 1
+    MATERIALIZED = 2
 
 
 class Component(ABC):
@@ -23,7 +24,21 @@ class Component(ABC):
     Lightweight components (Label, BoundingBox, Polygon,
     KeyPoint) are born MATERIALIZED since they carry no
     heavy data.
+
+    All components carry an optional ``name`` for
+    disambiguation when multiple instances of the same
+    type exist (e.g. ``Image(path, name="left")``), or to
+    group components if components are ambiguous inside a
+    sample.
     """
+
+    def __init__(self) -> None:
+        self._component_name: Optional[str] = None
+
+    @property
+    def name(self) -> Optional[str]:
+        """Optional disambiguation name."""
+        return self._component_name
 
     @property
     @abstractmethod
@@ -34,7 +49,7 @@ class Component(ABC):
     @property
     @abstractmethod
     def is_materialized(self) -> bool:
-        """Whether heavy data is loaded."""
+        """True when the component is fully loaded."""
         ...
 
     @abstractmethod

@@ -1,5 +1,4 @@
 """Custom exceptions for daugx."""
+from daugx.errors.invalid_component import InvalidComponentError
 
-
-class SchemaValidationError(Exception):
-    """Raised when a Sample does not conform to a Schema."""
+__all__ = ["InvalidComponentError"]

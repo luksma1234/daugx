@@ -402,7 +402,7 @@ class Pipeline:
     # Internal helpers called by Node
     # ------------------------------------------------------------------
 
-    def add_transform(
+    def _add_transform(
         self, source: Node, transform: object, p: float,
     ) -> Node:
         """Add a transform node after *source*. Called by ``Node.then``."""
@@ -416,7 +416,7 @@ class Pipeline:
         self._nodes[source.node_id].next.append(node_id)
         return Node(self, node_id)
 
-    def add_split(
+    def _add_split(
         self, source: Node, shares: Sequence[float],
     ) -> Tuple[Node, ...]:
         """Add split branches after *source*. Called by ``Node.split``."""

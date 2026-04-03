@@ -55,7 +55,7 @@ class Node:
             raise ValueError(
                 f"Execution probability must be in [0, 1], got {p}."
             )
-        return self._pipeline.add_transform(self, transform, p)
+        return self._pipeline._add_transform(self, transform, p)
 
     def split(self, *shares: float) -> Tuple[Node, ...]:
         """Branch into multiple paths with given probability shares.
@@ -78,4 +78,4 @@ class Node:
             raise ValueError("split() requires at least two shares.")
         if any(s < 0 for s in shares):
             raise ValueError("Shares must be non-negative.")
-        return self._pipeline.add_split(self, shares)
+        return self._pipeline._add_split(self, shares)
