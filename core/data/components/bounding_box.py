@@ -6,6 +6,40 @@ import numpy as np
 from daugx.core.data.component import Component, ComponentState
 from daugx.core.data.components.image import Image
 
+_BOX_TYPES = ("XYXY", "XYWH", "CXCYWH", "YXYX")
+
+
+def _xywh_to_xyxy(pts: np.ndarray) -> np.ndarray:
+    """Convert ``[[x, y], [w, h]]`` to ``[[x_min, y_min],
+    [x_max, y_max]]``."""
+    return np.array([
+        pts[0],
+        pts[0] + pts[1],
+    ])
+
+
+def _cxcywh_to_xyxy(pts: np.ndarray) -> np.ndarray:
+    """Convert ``[[cx, cy], [w, h]]`` to ``[[x_min, y_min],
+    [x_max, y_max]]``."""
+    half = pts[1] / 2
+    return np.array([
+        pts[0] - half,
+        pts[0] + half,
+    ])
+
+
+def _yxyx_to_xyxy(pts: np.ndarray) -> np.ndarray:
+    """Convert ``[[y_min, x_min], [y_max, x_max]]`` to
+    ``[[x_min, y_min], [x_max, y_max]]``."""
+    return pts[:, ::-1]
+
+
+_CONVERTERS = {
+    "XYWH": _xywh_to_xyxy,
+    "CXCYWH": _cxcywh_to_xyxy,
+    "YXYX": _yxyx_to_xyxy,
+}
+
 
 class ImageBoundingBox(Component):
     """Axis-aligned bounding box annotation for images.
@@ -18,7 +52,11 @@ class ImageBoundingBox(Component):
             components.
 
     Args:
-        points: Array of shape (2, 2).
+        points: Array of shape (2, 2). Interpretation depends
+            on *box_type*.
+        box_type: Coordinate format of *points*. One of
+            ``"XYXY"`` (default), ``"XYWH"``, ``"CXCYWH"``,
+            ``"YXYX"``. Case-insensitive.
         class_id: Integer class identifier.
         class_name: Human-readable class name.
         target: ``name`` of the parent ``Image`` component
@@ -26,7 +64,8 @@ class ImageBoundingBox(Component):
         name: Optional disambiguation name.
 
     Raises:
-        ValueError: If *points* is not shape (2, 2).
+        ValueError: If *points* is not shape (2, 2) or
+            *box_type* is not recognised.
     """
 
     applies_to = Image
@@ -38,15 +77,27 @@ class ImageBoundingBox(Component):
         class_name: Optional[str] = None,
         target: Optional[str] = None,
         name: Optional[str] = None,
+        box_type: str = "XYXY",
     ) -> None:
         super().__init__()
         self._component_name = name
         self._target = target
         pts = np.asarray(points, dtype=float)
+        if pts.shape == (4,):
+            pts = pts.reshape(2, 2)
         if pts.shape != (2, 2):
             raise ValueError(
-                f"Expected shape (2, 2), got {pts.shape}"
+                f"Expected shape (2, 2) or (4,), got {pts.shape}"
             )
+        box_type = box_type.upper()
+        if box_type not in _BOX_TYPES:
+            raise ValueError(
+                f"Invalid box_type '{box_type}'. "
+                f"Expected one of {_BOX_TYPES}."
+            )
+        converter = _CONVERTERS.get(box_type)
+        if converter is not None:
+            pts = converter(pts)
         self._points = pts
         self._class_id = class_id
         self._class_name = class_name

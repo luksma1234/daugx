@@ -203,6 +203,37 @@ class Sample:
     def __add__(self, other: Sample) -> Sample:
         return self.merge(other)
 
+    def show(
+        self,
+        components: Optional[Tuple[Type[Component], ...]] = None,
+    ) -> None:
+        """Visualize this sample using cv2.imshow.
+
+        Paints spatial annotations (``ImageBoundingBox``,
+        ``ImagePolygon``, ``ImageKeyPoint``) onto each
+        ``Image`` with per-label colors — opaque outline,
+        transparent fill — then opens an OpenCV window.
+        Press any key to close.
+
+        Calls :meth:`materialize` automatically if the
+        sample has not been materialized yet.
+
+        Args:
+            components: Optional tuple of component types
+                to include.  When ``None``, all ``Image``
+                and spatial annotation components are
+                shown.  Example: pass
+                ``(Image, ImageBoundingBox)`` to show only
+                the image and its bounding boxes.
+
+        Raises:
+            ValueError: If the sample contains multiple
+                ``Image`` components and *components* is
+                ``None`` (ambiguous which to display).
+        """
+        from daugx.core.data._visualizer import show_sample
+        show_sample(self, components)
+
     def modalities(self) -> Set[Optional[str]]:
         """Return the set of distinct names across all
         components.
