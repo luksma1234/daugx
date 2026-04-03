@@ -1,5 +1,6 @@
 """Visualization helpers for Sample.show()."""
-from typing import List, Optional, Tuple, Type
+import math
+from typing import List, Optional, Tuple, Type, Union
 
 import cv2
 import numpy as np
@@ -223,77 +224,161 @@ def _draw_annotations(
             _draw_keypoint(canvas, ann, color)
 
 
+def _assemble_grid(
+    canvases: List[np.ndarray],
+) -> np.ndarray:
+    """Arrange canvases into a grid image.
+
+    Layout uses ``ceil(sqrt(N))`` columns.  Each cell is
+    sized to the tallest and widest canvas.  Smaller images
+    are placed top-left with white fill.  Empty cells are
+    white.
+
+    Args:
+        canvases: Non-empty list of BGR image arrays.
+
+    Returns:
+        A single BGR ndarray containing the grid.
+    """
+    if len(canvases) == 1:
+        return canvases[0]
+
+    n = len(canvases)
+    cols = math.ceil(math.sqrt(n))
+    rows = math.ceil(n / cols)
+
+    cell_h = max(c.shape[0] for c in canvases)
+    cell_w = max(c.shape[1] for c in canvases)
+
+    grid = np.full(
+        (rows * cell_h, cols * cell_w, 3),
+        255,
+        dtype=np.uint8,
+    )
+
+    for idx, canvas in enumerate(canvases):
+        r = idx // cols
+        c = idx % cols
+        h, w = canvas.shape[:2]
+        y0 = r * cell_h
+        x0 = c * cell_w
+        grid[y0:y0 + h, x0:x0 + w] = canvas
+
+    return grid
+
+
+def _gather_annotations(
+    sample,
+    img,
+    image_count: int,
+) -> List[Component]:
+    """Collect annotations scoped to *img*.
+
+    When ``img.name`` is ``None``, only annotations with
+    ``target is None`` are returned (avoiding the
+    ``get_annotations(target=None)`` catch-all).  For a
+    single named image, unscoped annotations (``target is
+    None``) are also included.
+
+    Args:
+        sample: The parent ``Sample``.
+        img: The ``Image`` component.
+        image_count: Total number of images being shown.
+
+    Returns:
+        List of annotation components for this image.
+    """
+    if img.name is None:
+        return [
+            a for a in sample.get_annotations()
+            if a.target is None
+        ]
+    annotations = sample.get_annotations(target=img.name)
+    if image_count == 1:
+        unscoped = [
+            a for a in sample.get_annotations()
+            if a.target is None
+        ]
+        seen = {id(a) for a in annotations}
+        annotations += [
+            a for a in unscoped if id(a) not in seen
+        ]
+    return annotations
+
+
 def show_sample(
     sample,
-    components: Optional[Tuple[Type[Component], ...]] = None,
+    components: Optional[
+        Union[Type[Component], Tuple[Type[Component], ...]]
+    ] = None,
 ) -> None:
     """Render and display the image(s) in *sample*.
 
-    Called by ``Sample.show()``.
+    When multiple images exist they are arranged in a grid.
+    Annotations are drawn per-image before assembly.
 
     Args:
         sample: The ``Sample`` to visualize.  Will be
             materialized if needed.
-        components: Optional filter — only types listed
-            here are included.
-
-    Raises:
-        ValueError: If the sample contains multiple
-            ``Image`` components and *components* is
-            ``None``.
+        components: Optional type or tuple of types to
+            include.  ``None`` shows all images with all
+            spatial annotations.  ``(Image,)`` shows images
+            only.
     """
     sample.materialize()
+
+    # Normalize single type to tuple
+    if isinstance(components, type):
+        components = (components,)
+
+    #TODO: For now this does work. In the future, this has to be revisited, to also include more primary components.
+    if components is not None and Image not in components:
+        raise ValueError(
+            "components must include Image. Annotations "
+            "cannot be shown without a primary component."
+        )
 
     all_images = sample.get_all(Image)
     if not all_images:
         return
 
-    #TODO: This does not make sense. There can be multiple image components to show, but all annotations must be
-    # unambiguously assigned to one image. Therefore it has to be checked if all secondary components are assigned and
-    # if all primary components can be shown together.
-    # Also it must be possible to show Images by their own if needed. with Sample.show(daugx.Image)
-
     if components is None:
-        if len(all_images) > 1:
-            raise ValueError(
-                f"Sample contains {len(all_images)} Image "
-                f"components. Pass components= to specify "
-                f"which to show (e.g. components=(Image,))."
-            )
         images_to_show = all_images
-        ann_filter = None  # show all spatial annotations
+        ann_filter = None
     else:
         images_to_show = [
             img for img in all_images
             if isinstance(img, components)
         ]
         ann_filter = tuple(
-            t for t in components
-            if t is not Image
+            t for t in components if t is not Image
         )
 
+    if not images_to_show:
+        return
+
+    image_count = len(images_to_show)
+    canvases = []
     for img in images_to_show:
         canvas = img.data.copy()
 
-        # Gather annotations scoped to this image
-        all_annotations = sample.get_annotations(
-            target=img.name,
+        annotations = _gather_annotations(
+            sample, img, image_count,
         )
         if ann_filter is not None:
-            all_annotations = [
-                a for a in all_annotations
+            annotations = [
+                a for a in annotations
                 if isinstance(a, ann_filter)
             ]
 
-        # Only draw spatial types
         spatial = [
-            a for a in all_annotations
+            a for a in annotations
             if isinstance(a, _SPATIAL_ANNOTATION_TYPES)
         ]
         _draw_annotations(canvas, spatial)
+        canvases.append(canvas)
 
-        window_name = img.name if img.name else "Sample"
-        cv2.imshow(window_name, canvas)
-
+    grid = _assemble_grid(canvases)
+    cv2.imshow("Sample", grid)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
